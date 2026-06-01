@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import Script from "next/script";
 import {
   AlertCircle,
   CheckCircle2,
@@ -95,12 +96,35 @@ type PointsState = {
   error: string | null;
 };
 
+type TurnstileApi = {
+  render: (
+    element: HTMLElement,
+    options: {
+      sitekey: string;
+      theme?: "dark" | "light" | "auto";
+      callback?: (token: string) => void;
+      "expired-callback"?: () => void;
+      "error-callback"?: () => void;
+    },
+  ) => string;
+  reset: (widgetId?: string) => void;
+  remove: (widgetId?: string) => void;
+};
+
+declare global {
+  interface Window {
+    turnstile?: TurnstileApi;
+  }
+}
+
 const statusLabels: Record<RedeemJob["status"], string> = {
   queued: "varakozik",
   running: "fut",
   done: "kesz",
   failed: "hiba",
 };
+
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 
 export function RedeemApp() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
@@ -112,6 +136,8 @@ export function RedeemApp() {
   const [starting, setStarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileReady, setTurnstileReady] = useState(false);
   const [points, setPoints] = useState<PointsState>({
     loading: false,
     found: false,
@@ -131,7 +157,8 @@ export function RedeemApp() {
   const maxByPoints =
     selectedPrice > 0 ? Math.floor(points.points / selectedPrice) : 0;
   const canStart =
-    Boolean(auth?.authenticated && selectedItem && quantity > 0) && !starting;
+    Boolean(auth?.authenticated && selectedItem && quantity > 0 && turnstileToken) &&
+    !starting;
 
   const showVodWarning = isHungaryVodRiskWindow();
 
@@ -218,6 +245,7 @@ export function RedeemApp() {
         body: JSON.stringify({
           itemId: selectedItem.id,
           quantity,
+          turnstileToken,
         }),
       });
       const data = (await response.json()) as {
@@ -230,8 +258,12 @@ export function RedeemApp() {
       }
 
       setJob(data.job);
+      setTurnstileToken("");
+      window.turnstile?.reset();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Start hiba");
+      setTurnstileToken("");
+      window.turnstile?.reset();
     } finally {
       setStarting(false);
     }
@@ -296,6 +328,11 @@ export function RedeemApp() {
 
   return (
     <TooltipProvider>
+      <Script
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+        strategy="afterInteractive"
+        onLoad={() => setTurnstileReady(true)}
+      />
       <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.075),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.045),transparent_30%),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(0,0,0,0.82))]" />
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
@@ -497,6 +534,11 @@ export function RedeemApp() {
                   </div>
                 </div>
 
+                <TurnstileBox
+                  onToken={setTurnstileToken}
+                  scriptReady={turnstileReady}
+                />
+
                 <Button
                   className="h-12 w-full rounded-md text-base"
                   onClick={requestStart}
@@ -642,6 +684,66 @@ function InfoTile({
         {label}
       </div>
       <div className="mt-1 break-words font-mono text-lg">{value}</div>
+    </div>
+  );
+}
+
+function TurnstileBox({
+  onToken,
+  scriptReady,
+}: {
+  onToken: (token: string) => void;
+  scriptReady: boolean;
+}) {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const widgetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!turnstileSiteKey) {
+      return;
+    }
+
+    if (!scriptReady || !container || widgetIdRef.current || !window.turnstile) {
+      return;
+    }
+
+    const id = window.turnstile.render(container, {
+      sitekey: turnstileSiteKey,
+      theme: "dark",
+      callback: (token) => {
+        setError(null);
+        onToken(token);
+      },
+      "expired-callback": () => {
+        onToken("");
+      },
+      "error-callback": () => {
+        onToken("");
+        setError("Turnstile ellenorzes hiba");
+      },
+    });
+
+    widgetIdRef.current = id;
+
+    return () => {
+      window.turnstile?.remove(id);
+      widgetIdRef.current = null;
+    };
+  }, [container, onToken, scriptReady]);
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+      <div className="mb-2 text-sm text-muted-foreground">
+        Cloudflare ellenorzes
+      </div>
+      <div ref={setContainer} className="min-h-[65px]" />
+      {!turnstileSiteKey ? (
+        <div className="mt-2 text-xs text-red-300">
+          Turnstile site key hianyzik
+        </div>
+      ) : null}
+      {error ? <div className="mt-2 text-xs text-red-300">{error}</div> : null}
     </div>
   );
 }

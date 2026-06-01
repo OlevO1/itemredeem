@@ -21,13 +21,22 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
     itemId?: string;
     quantity?: number;
+    turnstileToken?: string;
   } | null;
   const itemId = String(body?.itemId || "").trim();
   const quantity = Math.floor(Number(body?.quantity || 0));
+  const turnstileToken = String(body?.turnstileToken || "").trim();
   const maxQuantity = getMaxRedeemQuantity();
 
   if (!itemId) {
     return Response.json({ error: "Item is required" }, { status: 400 });
+  }
+
+  if (!turnstileToken) {
+    return Response.json(
+      { error: "Turnstile verification required" },
+      { status: 400 },
+    );
   }
 
   if (!Number.isFinite(quantity) || quantity < 1 || quantity > maxQuantity) {
@@ -76,6 +85,7 @@ export async function POST(request: NextRequest) {
         },
         item,
         quantity,
+        turnstileToken,
       }),
     });
     const response = NextResponse.json(backend);
