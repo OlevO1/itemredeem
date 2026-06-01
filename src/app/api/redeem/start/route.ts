@@ -76,6 +76,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const freshness = await ensureFreshSession(session);
+    const requestOrigin = request.headers.get("origin") || "";
+    const turnstileHost = requestOrigin
+      ? safeHostname(requestOrigin) || request.nextUrl.hostname
+      : request.nextUrl.hostname;
     const backend = await backendRequest<{ job: unknown }>("/jobs", {
       method: "POST",
       body: JSON.stringify({
@@ -86,6 +90,7 @@ export async function POST(request: NextRequest) {
         item,
         quantity,
         turnstileToken,
+        turnstileHost,
       }),
     });
     const response = NextResponse.json(backend);
@@ -103,5 +108,13 @@ export async function POST(request: NextRequest) {
       },
       { status: 502 },
     );
+  }
+}
+
+function safeHostname(value: string) {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return "";
   }
 }

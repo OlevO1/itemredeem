@@ -125,6 +125,7 @@ const statusLabels: Record<RedeemJob["status"], string> = {
 };
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
+const turnstileLocalSiteKey = "1x00000000000000000000AA";
 
 export function RedeemApp() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
@@ -698,9 +699,13 @@ function TurnstileBox({
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const activeSiteKey =
+    typeof window !== "undefined" && isLocalTurnstileHost(window.location.hostname)
+      ? turnstileLocalSiteKey
+      : turnstileSiteKey;
 
   useEffect(() => {
-    if (!turnstileSiteKey) {
+    if (!activeSiteKey) {
       return;
     }
 
@@ -709,7 +714,7 @@ function TurnstileBox({
     }
 
     const id = window.turnstile.render(container, {
-      sitekey: turnstileSiteKey,
+      sitekey: activeSiteKey,
       theme: "dark",
       callback: (token) => {
         setError(null);
@@ -730,7 +735,7 @@ function TurnstileBox({
       window.turnstile?.remove(id);
       widgetIdRef.current = null;
     };
-  }, [container, onToken, scriptReady]);
+  }, [activeSiteKey, container, onToken, scriptReady]);
 
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
@@ -738,7 +743,7 @@ function TurnstileBox({
         Cloudflare ellenorzes
       </div>
       <div ref={setContainer} className="min-h-[65px]" />
-      {!turnstileSiteKey ? (
+      {!activeSiteKey ? (
         <div className="mt-2 text-xs text-red-300">
           Turnstile site key hianyzik
         </div>
@@ -746,6 +751,10 @@ function TurnstileBox({
       {error ? <div className="mt-2 text-xs text-red-300">{error}</div> : null}
     </div>
   );
+}
+
+function isLocalTurnstileHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 function formatNumber(value: number) {
