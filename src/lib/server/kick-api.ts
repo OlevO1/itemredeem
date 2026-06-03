@@ -14,6 +14,8 @@ type TokenResponse = {
 };
 
 type KickChatResponse = {
+  ok?: boolean;
+  messageId?: string | null;
   data?: {
     is_sent?: boolean;
     message_id?: string;
@@ -260,17 +262,22 @@ export async function sendKickChatMessage({
     throw new Error("Empty chat message");
   }
 
-  const response = await fetch(`${KICK_API_BASE_URL}/chat`, {
+  const gatewayUrl = process.env.KICK_CHAT_GATEWAY_URL || "http://127.0.0.1:2320";
+  const gatewayToken = process.env.KICK_CHAT_GATEWAY_TOKEN || "";
+  const gatewayClientName = process.env.KICK_CHAT_GATEWAY_CLIENT_NAME || "kickletbulkredeem";
+  const response = await fetch(`${gatewayUrl.replace(/\/$/, "")}/send`, {
     method: "POST",
     headers: {
       accept: "application/json",
-      authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
+      "x-backend-name": gatewayClientName,
+      ...(gatewayToken ? { authorization: `Bearer ${gatewayToken}` } : {}),
     },
     body: JSON.stringify({
-      broadcaster_user_id: await resolveBroadcasterUserId(),
+      accessToken,
+      broadcasterUserId: await resolveBroadcasterUserId(),
+      clientName: gatewayClientName,
       content: trimmed,
-      type: "user",
     }),
   });
 
@@ -281,7 +288,7 @@ export async function sendKickChatMessage({
   }
 
   return {
-    sent: body?.data?.is_sent !== false,
-    messageId: body?.data?.message_id || null,
+    sent: body?.ok === true || body?.data?.is_sent !== false,
+    messageId: body?.messageId || body?.data?.message_id || null,
   };
 }

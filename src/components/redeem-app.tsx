@@ -54,6 +54,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 type AuthStatus = {
   authenticated: boolean;
@@ -76,7 +77,7 @@ type ShopItem = {
 
 type RedeemJob = {
   id: string;
-  status: "queued" | "running" | "done" | "failed";
+  status: "scheduled" | "proxy_wait" | "queued" | "running" | "done" | "failed";
   itemName: string;
   command: string;
   total: number;
@@ -86,7 +87,18 @@ type RedeemJob = {
   delayMs: number;
   estimatedSeconds: number;
   logs: string[];
+  scheduledFor?: string;
+  proxyStatus?: ProxyStatus;
   error: string | null;
+};
+
+type ProxyStatus = {
+  ok: boolean;
+  state: "operational" | "proxy_error" | "unknown";
+  title: string;
+  summary: string;
+  publishedAt: string | null;
+  checkedAt: string;
 };
 
 type PointsState = {
@@ -118,6 +130,8 @@ declare global {
 }
 
 const statusLabels: Record<RedeemJob["status"], string> = {
+  scheduled: "utemezve",
+  proxy_wait: "proxyra var",
   queued: "varakozik",
   running: "fut",
   done: "kesz",
@@ -126,6 +140,7 @@ const statusLabels: Record<RedeemJob["status"], string> = {
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 const turnstileLocalSiteKey = "1x00000000000000000000AA";
+const redeemCommandSuffix = " | automata kivaltas";
 
 export function RedeemApp() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
@@ -133,6 +148,7 @@ export function RedeemApp() {
   const [selectedItemId, setSelectedItemId] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [job, setJob] = useState<RedeemJob | null>(null);
+  const [proxyStatus, setProxyStatus] = useState<ProxyStatus | null>(null);
   const [loadingItems, setLoadingItems] = useState(true);
   const [starting, setStarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -162,6 +178,30 @@ export function RedeemApp() {
     !starting;
 
   const showVodWarning = isHungaryVodRiskWindow();
+
+  const loadProxyStatus = useCallback(async () => {
+    try {
+      const response = await fetch("/api/redeem/proxy-status", {
+        cache: "no-store",
+      });
+      const data = (await response.json()) as {
+        proxyStatus?: ProxyStatus;
+      };
+
+      if (data.proxyStatus) {
+        setProxyStatus(data.proxyStatus);
+      }
+    } catch {
+      setProxyStatus({
+        ok: false,
+        state: "unknown",
+        title: "Proxy status hiba",
+        summary: "Nem sikerult lekerdezni a Webshare RSS statust.",
+        publishedAt: null,
+        checkedAt: new Date().toISOString(),
+      });
+    }
+  }, []);
 
   const loadPoints = useCallback(async () => {
     setPoints((current) => ({ ...current, loading: true, error: null }));
@@ -259,6 +299,9 @@ export function RedeemApp() {
       }
 
       setJob(data.job);
+      if (data.job.proxyStatus) {
+        setProxyStatus(data.job.proxyStatus);
+      }
       setTurnstileToken("");
       window.turnstile?.reset();
     } catch (nextError) {
@@ -300,16 +343,33 @@ export function RedeemApp() {
     const timer = window.setTimeout(() => {
       void loadStatus();
       void loadItems();
+      void loadProxyStatus();
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [loadItems, loadStatus]);
+  }, [loadItems, loadProxyStatus, loadStatus]);
 
   useEffect(() => {
-    if (!job || (job.status !== "queued" && job.status !== "running")) {
+    const timer = window.setInterval(() => {
+      void loadProxyStatus();
+    }, 180_000);
+
+    return () => window.clearInterval(timer);
+  }, [loadProxyStatus]);
+
+  useEffect(() => {
+    if (
+      !job ||
+      (job.status !== "scheduled" &&
+        job.status !== "proxy_wait" &&
+        job.status !== "queued" &&
+        job.status !== "running")
+    ) {
       return;
     }
 
+    const pollMs =
+      job.status === "scheduled" || job.status === "proxy_wait" ? 10_000 : 900;
     const timer = window.setInterval(async () => {
       const response = await fetch(`/api/redeem/jobs/${job.id}`, {
         cache: "no-store",
@@ -322,10 +382,18 @@ export function RedeemApp() {
           void loadPoints();
         }
       }
-    }, 900);
+    }, pollMs);
 
     return () => window.clearInterval(timer);
   }, [job, loadPoints]);
+
+  if (!auth) {
+    return <AuthGate configured={true} loading />;
+  }
+
+  if (!auth.authenticated) {
+    return <AuthGate configured={auth.configured} loading={false} />;
+  }
 
   return (
     <TooltipProvider>
@@ -350,6 +418,12 @@ export function RedeemApp() {
                   className="rounded-md"
                 >
                   {auth?.authenticated ? "authorizalva" : "nincs token"}
+                </Badge>
+                <Badge
+                  variant={proxyStatus?.ok ? "default" : "destructive"}
+                  className="rounded-md"
+                >
+                  {proxyStatus?.ok ? "proxy rendben" : "proxy hiba"}
                 </Badge>
               </div>
               <h1 className="mt-3 text-2xl font-semibold tracking-normal text-balance sm:text-5xl">
@@ -394,6 +468,20 @@ export function RedeemApp() {
               )}
             </div>
           </header>
+
+          {proxyStatus && !proxyStatus.ok ? (
+            <div className="mt-3 rounded-md border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-300" />
+                <div className="min-w-0">
+                  <div className="font-medium">Webshare proxy hiba: {proxyStatus.title}</div>
+                  <div className="mt-0.5 line-clamp-2 text-xs text-red-100/75">
+                    {proxyStatus.summary || "A kivaltas proxy hiba miatt nem indul."}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid flex-1 gap-3 py-3 sm:gap-4 sm:py-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
             <Card className="rounded-lg border-white/10 bg-black/50 shadow-none backdrop-blur">
@@ -528,7 +616,7 @@ export function RedeemApp() {
                 <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 sm:p-4">
                   <div className="text-sm text-muted-foreground">Command</div>
                   <div className="mt-1 break-words font-mono text-base sm:text-lg">
-                    {selectedItem ? `!shop buy ${selectedItem.command}` : "..."}
+                    {selectedItem ? `!shop buy ${selectedItem.command}${redeemCommandSuffix}` : "..."}
                   </div>
                   <div className="mt-2 text-xs text-muted-foreground">
                     5 masodpercenkent kuld 1 uzenetet, sikernek csak a Kicklet bot visszaigazolasa szamit.
@@ -581,23 +669,36 @@ export function RedeemApp() {
                     <Progress value={progress} />
                     <InfoTile
                       icon={<Clock3 className="size-4" />}
-                      label="Becsult teljes ido"
-                      value={formatDuration(job.estimatedSeconds)}
+                      label={
+                        job.status === "scheduled"
+                          ? "Utemezett inditas"
+                          : job.status === "proxy_wait"
+                            ? "Proxy ujraproba"
+                            : "Becsult teljes ido"
+                      }
+                      value={
+                        (job.status === "scheduled" || job.status === "proxy_wait") && job.scheduledFor
+                          ? formatDateTime(job.scheduledFor)
+                          : formatDuration(job.estimatedSeconds)
+                      }
                     />
                     <Separator />
-                    <div className="max-h-[45vh] min-h-[220px] overflow-auto rounded-lg border border-white/10 bg-black/40 p-3 font-mono text-xs text-muted-foreground sm:min-h-[260px]">
+                    <div className="max-h-[45vh] min-h-[220px] overflow-hidden rounded-lg border border-white/10 bg-black/40 p-2 sm:min-h-[260px]">
+                      <div className="custom-scroll grid max-h-[calc(45vh-16px)] gap-2 overflow-y-auto pr-1">
                       {job.logs.length ? (
                         job.logs.map((line, index) => (
-                          <div
+                          <JobLogLine
                             key={`${index}-${line}`}
-                            className="break-words py-0.5"
-                          >
-                            {line}
-                          </div>
+                            line={line}
+                            index={index}
+                          />
                         ))
                       ) : (
-                        <div>varakozik...</div>
+                        <div className="p-8 text-center text-sm text-muted-foreground">
+                          varakozik...
+                        </div>
                       )}
+                      </div>
                     </div>
                   </>
                 ) : (
@@ -649,6 +750,68 @@ export function RedeemApp() {
   );
 }
 
+function AuthGate({
+  configured,
+  loading,
+}: {
+  configured: boolean;
+  loading: boolean;
+}) {
+  return (
+    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background px-4 py-10 text-foreground">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.075),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.045),transparent_30%),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(0,0,0,0.82))]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
+
+      <section className="relative z-10 w-full max-w-xl rounded-lg border border-white/10 bg-black/55 p-5 shadow-none backdrop-blur sm:p-7">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="secondary" className="rounded-md">
+            Kicklet Bulk Redeem
+          </Badge>
+          <Badge variant="outline" className="rounded-md">
+            Kick auth szukseges
+          </Badge>
+        </div>
+
+        <div className="mt-6 grid gap-4">
+          <div className="grid size-12 place-items-center rounded-md border border-white/10 bg-white/[0.04]">
+            <ShoppingBag className="size-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-normal sm:text-4xl">
+              Jelentkezz be Kickkel
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
+              Ez az oldal a kiválasztott Kicklet itemet tudja kiváltani a megadott mennyiségben. Ehhez Kick authorizáció kell, hogy lássa a Kick nevedet és az item kiváltásakor üzenetet tudjon küldeni a nevedben.
+            </p>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
+              Fontos: az oldal a nevedben semmit nem ír, csak az általad indított item kiváltás üzenetét.
+            </p>
+          </div>
+
+          {loading ? (
+            <Button disabled className="h-12 w-full rounded-md text-base">
+              <Loader2 className="size-4 animate-spin" />
+              Betoltes
+            </Button>
+          ) : configured ? (
+            <Button asChild className="h-12 w-full rounded-md text-base">
+              <a href="/api/auth/kick/start">
+                <LogIn className="size-4" />
+                Kick login
+              </a>
+            </Button>
+          ) : (
+            <Button disabled className="h-12 w-full rounded-md text-base">
+              <AlertCircle className="size-4" />
+              Kick auth nincs beallitva
+            </Button>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function StatusLine({ tone, text }: { tone: "ok" | "error"; text: string }) {
   const Icon = tone === "ok" ? CheckCircle2 : AlertCircle;
 
@@ -685,6 +848,32 @@ function InfoTile({
         {label}
       </div>
       <div className="mt-1 break-words font-mono text-lg">{value}</div>
+    </div>
+  );
+}
+
+function JobLogLine({ line, index }: { line: string; index: number }) {
+  const isProxyError = /proxy hiba|webshare proxy status|full outage|degraded performance/iu.test(line);
+  const isSuccess = /sikeres|kival[tv]va sikeresen|kesz:/iu.test(line);
+
+  return (
+    <div
+      className={cn(
+        "grid grid-cols-[42px_minmax(0,1fr)] gap-2 rounded-md border px-3 py-2 text-xs sm:grid-cols-[42px_minmax(0,1fr)_auto] sm:items-center sm:gap-3",
+        isProxyError
+          ? "border-red-400/25 bg-red-500/10 text-red-100"
+          : isSuccess
+            ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+            : "border-white/10 bg-white/[0.04] text-muted-foreground",
+      )}
+    >
+      <span className="font-mono text-[11px] text-muted-foreground">
+        #{index + 1}
+      </span>
+      <span className="min-w-0 break-words font-mono">{line}</span>
+      <span className="hidden shrink-0 rounded-md border border-white/10 bg-black/25 px-2 py-1 font-mono text-[10px] uppercase text-muted-foreground sm:inline-flex">
+        {isProxyError ? "proxy" : isSuccess ? "ok" : "log"}
+      </span>
     </div>
   );
 }
@@ -771,6 +960,22 @@ function formatDuration(totalSeconds: number) {
   }
 
   return `${minutes}p ${rest.toString().padStart(2, "0")}mp`;
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("hu-HU", {
+    timeZone: "Europe/Budapest",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function isHungaryVodRiskWindow() {
