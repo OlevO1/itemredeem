@@ -16,6 +16,7 @@ import {
   Radio,
   ShoppingBag,
   User,
+  X,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -72,7 +73,7 @@ type ShopItem = {
 
 type RedeemJob = {
   id: string;
-  status: "scheduled" | "proxy_wait" | "queued" | "running" | "done" | "failed";
+  status: "scheduled" | "proxy_wait" | "queued" | "running" | "done" | "failed" | "canceled";
   itemName: string;
   command: string;
   total: number;
@@ -131,6 +132,7 @@ const statusLabels: Record<RedeemJob["status"], string> = {
   running: "fut",
   done: "kész",
   failed: "hiba",
+  canceled: "megszakítva",
 };
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
@@ -146,6 +148,7 @@ export function RedeemApp() {
   const [loadedLatestJob, setLoadedLatestJob] = useState(false);
   const [loadingItems, setLoadingItems] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState("");
@@ -171,6 +174,12 @@ export function RedeemApp() {
   const canStart =
     Boolean(auth?.authenticated && selectedItem && quantity > 0 && turnstileToken) &&
     !starting;
+  const canCancel =
+    Boolean(job) &&
+    (job?.status === "scheduled" ||
+      job?.status === "proxy_wait" ||
+      job?.status === "queued" ||
+      job?.status === "running");
 
   const showVodWarning = isHungaryVodRiskWindow();
 
@@ -321,6 +330,36 @@ export function RedeemApp() {
   function confirmStart() {
     setConfirmOpen(false);
     void startRedeem();
+  }
+
+  async function cancelJob() {
+    if (!job || !canCancel) {
+      return;
+    }
+
+    setCanceling(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/redeem/jobs/${job.id}`, {
+        method: "DELETE",
+        cache: "no-store",
+      });
+      const data = (await response.json()) as {
+        job?: RedeemJob;
+        error?: string;
+      };
+
+      if (!response.ok || !data.job) {
+        throw new Error(data.error || "Nem sikerült megszakítani");
+      }
+
+      setJob(data.job);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Megszakítási hiba");
+    } finally {
+      setCanceling(false);
+    }
   }
 
   async function logout() {
@@ -625,9 +664,27 @@ export function RedeemApp() {
                     Job
                   </span>
                   {job ? (
-                    <Badge variant="outline" className="rounded-md">
-                      {statusLabels[job.status]}
-                    </Badge>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <Badge variant="outline" className="rounded-md">
+                        {statusLabels[job.status]}
+                      </Badge>
+                      {canCancel ? (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="rounded-md"
+                          onClick={() => void cancelJob()}
+                          disabled={canceling}
+                        >
+                          {canceling ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <X className="size-3.5" />
+                          )}
+                          Mégse
+                        </Button>
+                      ) : null}
+                    </span>
                   ) : null}
                 </CardTitle>
               </CardHeader>
