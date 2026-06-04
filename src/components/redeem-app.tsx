@@ -29,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   TooltipProvider,
@@ -122,20 +121,28 @@ const statusLabels: Record<RedeemJob["status"], string> = {
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 const turnstileLocalSiteKey = "1x00000000000000000000AA";
 
+function isActiveJob(job: RedeemJob) {
+  return (
+    job.status === "scheduled" ||
+    job.status === "proxy_wait" ||
+    job.status === "queued" ||
+    job.status === "running"
+  );
+}
+
 export function RedeemApp() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [items, setItems] = useState<ShopItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState("");
   const [quantity, setQuantity] = useState(1);
-  const [job, setJob] = useState<RedeemJob | null>(null);
+  const [jobs, setJobs] = useState<RedeemJob[]>([]);
   const [proxyStatus, setProxyStatus] = useState<ProxyStatus | null>(null);
   const [loadingItems, setLoadingItems] = useState(true);
   const [starting, setStarting] = useState(false);
-  const [canceling, setCanceling] = useState(false);
+  const [cancelingJobId, setCancelingJobId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileReady, setTurnstileReady] = useState(false);
-  const loadedLatestJobRef = useRef(false);
   const [points, setPoints] = useState<PointsState>({
     loading: false,
     found: false,
@@ -147,22 +154,23 @@ export function RedeemApp() {
     () => items.find((item) => item.id === selectedItemId) || null,
     [items, selectedItemId],
   );
-  const progress = job ? ((job.sent + job.failed) / job.total) * 100 : 0;
   const selectedPrice = Math.max(0, Number(selectedItem?.price || 0));
   const estimatedSeconds =
     quantity * Math.max(1, Math.round((auth?.redeemDelayMs || 5000) / 1000));
   const totalCost = selectedPrice * quantity;
+  const activeJobs = jobs.filter(isActiveJob);
+  const activeJobKey = activeJobs
+    .map((nextJob) => `${nextJob.id}:${nextJob.status}`)
+    .join("|");
+  const hasActiveJobs = activeJobs.length > 0;
+  const hasSlowActiveJob = activeJobs.some(
+    (nextJob) => nextJob.status === "scheduled" || nextJob.status === "proxy_wait",
+  );
   const maxByPoints =
     selectedPrice > 0 ? Math.floor(points.points / selectedPrice) : 0;
   const canStart =
     Boolean(auth?.authenticated && selectedItem && quantity > 0 && turnstileToken) &&
     !starting;
-  const canCancel =
-    Boolean(job) &&
-    (job?.status === "scheduled" ||
-      job?.status === "proxy_wait" ||
-      job?.status === "queued" ||
-      job?.status === "running");
 
   const loadProxyStatus = useCallback(async () => {
     try {
@@ -256,6 +264,21 @@ export function RedeemApp() {
     }
   }, []);
 
+  const loadJobs = useCallback(async () => {
+    const response = await fetch("/api/redeem/jobs", { cache: "no-store" });
+
+    if (!response.ok) return;
+
+    const data = (await response.json()) as { jobs?: RedeemJob[] };
+    const nextJobs = data.jobs || [];
+    setJobs(nextJobs);
+
+    const nextProxyStatus = nextJobs.find((nextJob) => nextJob.proxyStatus)?.proxyStatus;
+    if (nextProxyStatus) {
+      setProxyStatus(nextProxyStatus);
+    }
+  }, []);
+
   async function startRedeem() {
     if (!selectedItem) {
       return;
@@ -275,18 +298,20 @@ export function RedeemApp() {
         }),
       });
       const data = (await response.json()) as {
+        jobs?: RedeemJob[];
         job?: RedeemJob;
         error?: string;
       };
 
-      if (!response.ok || !data.job) {
+      const nextJob = data.job || data.jobs?.[0];
+
+      if (!response.ok || !nextJob) {
         throw new Error(data.error || "Nem indult el");
       }
 
-      setJob(data.job);
-      loadedLatestJobRef.current = true;
-      if (data.job.proxyStatus) {
-        setProxyStatus(data.job.proxyStatus);
+      setJobs((current) => [nextJob, ...current]);
+      if (nextJob.proxyStatus) {
+        setProxyStatus(nextJob.proxyStatus);
       }
       setTurnstileToken("");
       window.turnstile?.reset();
@@ -303,16 +328,16 @@ export function RedeemApp() {
     void startRedeem();
   }
 
-  async function cancelJob() {
-    if (!job || !canCancel) {
+  async function cancelJob(id = "") {
+    if (!id) {
       return;
     }
 
-    setCanceling(true);
+    setCancelingJobId(id);
     setError(null);
 
     try {
-      const response = await fetch(`/api/redeem/jobs/${job.id}`, {
+      const response = await fetch(`/api/redeem/jobs/${id}`, {
         method: "DELETE",
         cache: "no-store",
       });
@@ -325,18 +350,19 @@ export function RedeemApp() {
         throw new Error(data.error || "Nem sikerült megszakítani");
       }
 
-      setJob(data.job);
+      setJobs((current) =>
+        current.map((nextJob) => (nextJob.id === data.job?.id ? data.job : nextJob)),
+      );
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Megszakítási hiba");
     } finally {
-      setCanceling(false);
+      setCancelingJobId("");
     }
   }
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    setJob(null);
-    loadedLatestJobRef.current = false;
+    setJobs([]);
     setPoints({ loading: false, found: false, points: 0, error: null });
     await loadStatus();
   }
@@ -350,11 +376,12 @@ export function RedeemApp() {
     const timer = window.setTimeout(() => {
       void loadStatus();
       void loadItems();
+      void loadJobs();
       void loadProxyStatus();
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [loadItems, loadProxyStatus, loadStatus]);
+  }, [loadItems, loadJobs, loadProxyStatus, loadStatus]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -365,57 +392,17 @@ export function RedeemApp() {
   }, [loadProxyStatus]);
 
   useEffect(() => {
-    if (
-      !job ||
-      (job.status !== "scheduled" &&
-        job.status !== "proxy_wait" &&
-        job.status !== "queued" &&
-        job.status !== "running")
-    ) {
+    if (!hasActiveJobs) {
       return;
     }
 
-    const pollMs =
-      job.status === "scheduled" || job.status === "proxy_wait" ? 10_000 : 900;
-    const timer = window.setInterval(async () => {
-      const response = await fetch(`/api/redeem/jobs/${job.id}`, {
-        cache: "no-store",
-      });
-
-      if (response.ok) {
-        const data = (await response.json()) as { job: RedeemJob };
-        setJob(data.job);
-        if (data.job.status === "done" || data.job.status === "failed") {
-          void loadPoints();
-        }
-      }
-    }, pollMs);
+    const timer = window.setInterval(() => {
+      void loadJobs();
+      void loadPoints();
+    }, hasSlowActiveJob ? 10_000 : 900);
 
     return () => window.clearInterval(timer);
-  }, [job, loadPoints]);
-
-  useEffect(() => {
-    if (!auth?.authenticated || loadedLatestJobRef.current || job) {
-      return;
-    }
-
-    loadedLatestJobRef.current = true;
-    void (async () => {
-      const response = await fetch("/api/redeem/jobs/latest", {
-        cache: "no-store",
-      });
-
-      if (!response.ok) return;
-
-      const data = (await response.json()) as { job?: RedeemJob | null };
-      if (data.job) {
-        setJob(data.job);
-        if (data.job.proxyStatus) {
-          setProxyStatus(data.job.proxyStatus);
-        }
-      }
-    })();
-  }, [auth?.authenticated, job]);
+  }, [activeJobKey, hasActiveJobs, hasSlowActiveJob, loadJobs, loadPoints]);
 
   if (!auth) {
     return <AuthCheckingShell />;
@@ -590,89 +577,24 @@ export function RedeemApp() {
                     Job
                   </span>
                 </h2>
-                  {job ? (
-                    <span className="flex shrink-0 items-center gap-2">
-                      <span className="rounded-md border border-input bg-input/30 px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                        {statusLabels[job.status]}
-                      </span>
-                      {canCancel ? (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="rounded-md"
-                          onClick={() => void cancelJob()}
-                          disabled={canceling}
-                        >
-                          {canceling ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <X className="size-3.5" />
-                          )}
-                          Mégse
-                        </Button>
-                      ) : null}
-                    </span>
-                  ) : null}
+                  <span className="rounded-md border border-input bg-input/30 px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    {activeJobs.length} aktív
+                  </span>
               </div>
               <div className="space-y-5">
-                {job ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <Metric label="siker" value={job.sent} />
-                      <Metric label="hiba" value={job.failed} />
-                      <Metric label="küldve" value={job.attempted} />
-                      <Metric label="total" value={job.total} />
-                    </div>
-                    <Progress value={progress} />
-                    <InfoTile
-                      icon={<Clock3 className="size-4" />}
-                      label={
-                        job.status === "scheduled"
-                          ? "Ütemezett indítás"
-                          : job.status === "proxy_wait"
-                            ? "Proxy újrapróba"
-                            : "Becsült teljes idő"
-                      }
-                      value={
-                        (job.status === "scheduled" || job.status === "proxy_wait") && job.scheduledFor
-                          ? formatDateTime(job.scheduledFor)
-                          : formatDuration(job.estimatedSeconds)
-                      }
-                    />
-                    <Separator />
-                    <div className="max-h-[45vh] min-h-[240px] overflow-hidden rounded-lg border border-border/80 bg-[#050505] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:min-h-[280px]">
-                      <div className="flex items-center justify-between border-b border-border/70 bg-muted/10 px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className="size-2 rounded-full bg-red-400/70" />
-                          <span className="size-2 rounded-full bg-yellow-300/70" />
-                          <span className="size-2 rounded-full bg-emerald-400/70" />
-                          <span className="ml-2 text-xs font-medium text-muted-foreground">
-                            Log
-                          </span>
-                        </div>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {job.logs.length} sor
-                        </span>
-                      </div>
-                      <div className="custom-scroll grid max-h-[calc(45vh-42px)] gap-1 overflow-y-auto p-2">
-                        {job.logs.length ? (
-                          job.logs.map((line, index) => (
-                            <JobLogLine
-                              key={`${index}-${line}`}
-                              line={line}
-                              index={index}
-                            />
-                          ))
-                        ) : (
-                          <div className="grid min-h-[180px] place-items-center text-sm text-muted-foreground">
-                            várakozik...
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </>
+                {jobs.length ? (
+                  <div className="grid gap-3">
+                    {jobs.map((nextJob) => (
+                      <JobCard
+                        key={nextJob.id}
+                        job={nextJob}
+                        canceling={cancelingJobId === nextJob.id}
+                        onCancel={cancelJob}
+                      />
+                    ))}
+                  </div>
                 ) : (
-                  <div className="grid min-h-[360px] place-items-center rounded-lg border border-dashed border-border/80 bg-muted/10 text-center text-muted-foreground">
+                  <div className="grid min-h-[240px] place-items-center rounded-lg border border-dashed border-border/80 bg-muted/10 text-center text-muted-foreground">
                     <div>
                       <Radio className="mx-auto mb-3 size-8" />
                       <div>Nincs aktív job</div>
@@ -685,6 +607,90 @@ export function RedeemApp() {
         </section>
       </main>
     </TooltipProvider>
+  );
+}
+
+function JobCard({
+  job,
+  canceling,
+  onCancel,
+}: {
+  job: RedeemJob;
+  canceling: boolean;
+  onCancel: (id: string) => void;
+}) {
+  const progress = ((job.sent + job.failed) / job.total) * 100;
+  const canCancel = isActiveJob(job);
+  const scheduleLabel =
+    job.status === "scheduled"
+      ? "Ütemezett indítás"
+      : job.status === "proxy_wait"
+        ? "Proxy újrapróba"
+        : "Becsült teljes idő";
+  const scheduleValue =
+    (job.status === "scheduled" || job.status === "proxy_wait") && job.scheduledFor
+      ? formatDateTime(job.scheduledFor)
+      : formatDuration(job.estimatedSeconds);
+
+  return (
+    <div className="grid gap-3 rounded-md border border-border/80 bg-muted/10 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold">{job.itemName}</div>
+          <div className="mt-1 font-mono text-xs text-muted-foreground">
+            {job.total} db · {statusLabels[job.status]}
+          </div>
+        </div>
+        {canCancel ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            className="shrink-0 rounded-md"
+            onClick={() => onCancel(job.id)}
+            disabled={canceling}
+          >
+            {canceling ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <X className="size-3.5" />
+            )}
+            Mégse
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Metric label="siker" value={job.sent} />
+        <Metric label="hiba" value={job.failed} />
+        <Metric label="küldve" value={job.attempted} />
+        <Metric label="total" value={job.total} />
+      </div>
+      <Progress value={progress} />
+      <InfoTile
+        icon={<Clock3 className="size-4" />}
+        label={scheduleLabel}
+        value={scheduleValue}
+      />
+      <div className="max-h-[220px] overflow-hidden rounded-lg border border-border/80 bg-[#050505] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+        <div className="flex items-center justify-between border-b border-border/70 bg-muted/10 px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground">Log</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {job.logs.length} sor
+          </span>
+        </div>
+        <div className="custom-scroll grid max-h-[178px] gap-1 overflow-y-auto p-2">
+          {job.logs.length ? (
+            job.logs.map((line, index) => (
+              <JobLogLine key={`${job.id}-${index}-${line}`} line={line} index={index} />
+            ))
+          ) : (
+            <div className="grid min-h-[120px] place-items-center text-sm text-muted-foreground">
+              várakozik...
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
