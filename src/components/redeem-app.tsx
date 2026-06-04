@@ -350,9 +350,7 @@ export function RedeemApp() {
         throw new Error(data.error || "Nem sikerült megszakítani");
       }
 
-      setJobs((current) =>
-        current.map((nextJob) => (nextJob.id === data.job?.id ? data.job : nextJob)),
-      );
+      setJobs((current) => current.filter((nextJob) => nextJob.id !== data.job?.id));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Megszakítási hiba");
     } finally {
