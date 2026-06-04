@@ -27,14 +27,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -149,7 +141,6 @@ export function RedeemApp() {
   const [loadingItems, setLoadingItems] = useState(true);
   const [starting, setStarting] = useState(false);
   const [canceling, setCanceling] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileReady, setTurnstileReady] = useState(false);
@@ -180,8 +171,6 @@ export function RedeemApp() {
       job?.status === "proxy_wait" ||
       job?.status === "queued" ||
       job?.status === "running");
-
-  const showVodWarning = isHungaryVodRiskWindow();
 
   const loadProxyStatus = useCallback(async () => {
     try {
@@ -319,16 +308,6 @@ export function RedeemApp() {
   }
 
   function requestStart() {
-    if (showVodWarning) {
-      setConfirmOpen(true);
-      return;
-    }
-
-    void startRedeem();
-  }
-
-  function confirmStart() {
-    setConfirmOpen(false);
     void startRedeem();
   }
 
@@ -743,38 +722,6 @@ export function RedeemApp() {
             </Card>
           </div>
         </section>
-
-        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <DialogContent className="rounded-lg border-white/10 bg-zinc-950 text-foreground sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Biztosan most akarsz kiváltani?</DialogTitle>
-              <DialogDescription>
-                Magyar idő szerint 10:00 és 02:00 között vagyunk. Lehet, hogy
-                épp nem VOD megy, ezért a chat üzenetek élő adásba kerülhetnek.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="rounded-md border border-white/10 bg-white/[0.04] p-3 text-sm text-muted-foreground">
-              {quantity} x {selectedItem?.name || "item"} - becsült idő{" "}
-              {formatDuration(estimatedSeconds)}
-            </div>
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                variant="outline"
-                onClick={() => setConfirmOpen(false)}
-                className="w-full sm:w-auto"
-              >
-                Mégse
-              </Button>
-              <Button
-                onClick={confirmStart}
-                disabled={!canStart}
-                className="w-full sm:w-auto"
-              >
-                Igen, indítsd
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </main>
     </TooltipProvider>
   );
@@ -1029,19 +976,4 @@ function formatDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function isHungaryVodRiskWindow() {
-  const parts = new Intl.DateTimeFormat("hu-HU", {
-    timeZone: "Europe/Budapest",
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-  const hour = Number(parts.find((part) => part.type === "hour")?.value);
-
-  if (!Number.isFinite(hour)) {
-    return false;
-  }
-
-  return hour >= 10 || hour < 2;
 }
