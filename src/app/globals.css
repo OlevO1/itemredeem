@@ -174,10 +174,31 @@
   .redeem-start-motion {
     position: relative;
     overflow: hidden;
+    isolation: isolate;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.5),
+      0 0 0 1px rgb(255 255 255 / 0.04);
     transition:
       transform 180ms ease,
       box-shadow 220ms ease,
-      background-color 220ms ease;
+      background-color 220ms ease,
+      filter 220ms ease;
+  }
+
+  .redeem-start-motion::before {
+    content: "";
+    position: absolute;
+    inset: -40%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 110%, rgb(0 231 1 / 0.34), transparent 42%),
+      linear-gradient(90deg, transparent, rgb(0 231 1 / 0.14), transparent);
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+    transition:
+      opacity 240ms ease,
+      transform 260ms ease;
   }
 
   .redeem-start-motion::after {
@@ -189,7 +210,8 @@
     background: linear-gradient(
       90deg,
       transparent,
-      rgb(255 255 255 / 0.22),
+      rgb(255 255 255 / 0.32),
+      rgb(0 231 1 / 0.22),
       transparent
     );
     opacity: 0;
@@ -197,7 +219,17 @@
 
   .redeem-start-motion:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 10px 28px rgb(255 255 255 / 0.08);
+    filter: brightness(1.03);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.62),
+      0 0 0 1px rgb(0 231 1 / 0.18),
+      0 12px 30px rgb(0 231 1 / 0.13),
+      0 3px 12px rgb(255 255 255 / 0.08);
+  }
+
+  .redeem-start-motion:hover:not(:disabled)::before {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 
   .redeem-start-motion:hover:not(:disabled)::after {

@@ -14,7 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Kicklet Bulk Redeem",
-  description: "Kick authorizationos bulk redeem tool.",
+  description:
+    "Letisztult bulk redeem felület Kicklet itemek gyors, kontrollált kiváltásához.",
 };
 
 export default function RootLayout({

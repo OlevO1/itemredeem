@@ -477,7 +477,7 @@ export function RedeemApp() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,540px)_420px] lg:items-start lg:justify-center xl:grid-cols-[620px_420px] 2xl:grid-cols-[720px_420px]">
             <section className="rounded-lg border border-border/80 bg-card/70 p-3 shadow-none sm:p-5">
               <div className="mb-3 flex items-center justify-between gap-3 border-b border-border/70 pb-3 sm:mb-4 sm:pb-4">
                 <h2 className="flex items-center gap-2 text-base font-semibold">
@@ -698,7 +698,7 @@ function AuthCheckingShell() {
           <Skeleton className="h-8 w-20" />
         </header>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,540px)_420px] lg:items-start lg:justify-center xl:grid-cols-[620px_420px] 2xl:grid-cols-[720px_420px]">
           <section className="rounded-lg border border-border/80 bg-card/70 p-3 shadow-none sm:p-5">
             <div className="mb-3 flex items-center justify-between border-b border-border/70 pb-3 sm:mb-4 sm:pb-4">
               <Skeleton className="h-6 w-28" />
@@ -753,16 +753,7 @@ function AuthGate2({
     <main className="auth-loading-screen grid min-h-screen place-items-center bg-background px-4 py-10 text-foreground">
       <div className="loading-trace" aria-hidden="true" />
       <section className="auth-panel-enter w-full max-w-lg rounded-lg border border-border/80 bg-card/70 p-5 shadow-none sm:p-7">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="rounded-md border border-input bg-input/30 px-2 py-1.5">
-            Kicklet Bulk Redeem
-          </span>
-          <span className="rounded-md border border-input bg-input/30 px-2 py-1.5">
-            Kick auth szükséges
-          </span>
-        </div>
-
-        <div className="mt-6 grid gap-4">
+        <div className="grid gap-4">
           <div className="auth-mark-motion grid size-12 place-items-center rounded-md border border-border bg-muted/20">
             <ShoppingBag className="size-6" />
           </div>
