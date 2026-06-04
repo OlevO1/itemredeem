@@ -4,7 +4,7 @@ import {
   getRedeemDelayMs,
   isKickConfigured,
 } from "@/lib/server/kick-api";
-import { readSession } from "@/lib/server/kick-session";
+import { isTestAuthEnabled, readSession } from "@/lib/server/kick-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
   return Response.json({
     authenticated: Boolean(session?.accessToken && session.expiresAt > Date.now()),
-    configured: isKickConfigured(),
+    configured: isTestAuthEnabled() || isKickConfigured(),
     scope: session?.scope || null,
     expiresAt: session?.expiresAt || null,
     userName: session?.userName || null,

@@ -22,6 +22,27 @@ export type OAuthState = {
   createdAt: number;
 };
 
+export function isTestAuthEnabled() {
+  const raw = process.env.TEST ?? process.env.test ?? "";
+
+  return /^(1|true|yes|on)$/iu.test(raw.trim());
+}
+
+function testSession(): KickSession {
+  return {
+    accessToken: "test-access-token",
+    refreshToken: "test-refresh-token",
+    expiresAt: Date.now() + 1000 * 60 * 60 * 24,
+    scope: "chat:write user:read",
+    tokenType: "Bearer",
+    userId: 0,
+    userName:
+      process.env.TEST_KICK_USER_NAME?.trim() ||
+      process.env.TEST_USER_NAME?.trim() ||
+      "test-user",
+  };
+}
+
 function getSessionSecret() {
   const secret =
     process.env.KICK_SESSION_SECRET ||
@@ -135,6 +156,10 @@ export function clearAuthCookies(response: NextResponse) {
 }
 
 export function readSession(request: NextRequest) {
+  if (isTestAuthEnabled()) {
+    return testSession();
+  }
+
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
 
   return raw ? decryptJson<KickSession>(raw) : null;

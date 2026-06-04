@@ -11,7 +11,6 @@ import {
   Loader2,
   LogOut,
   Minus,
-  Play,
   Plus,
   Radio,
   ShoppingBag,
@@ -19,14 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -137,13 +129,13 @@ export function RedeemApp() {
   const [quantity, setQuantity] = useState(1);
   const [job, setJob] = useState<RedeemJob | null>(null);
   const [proxyStatus, setProxyStatus] = useState<ProxyStatus | null>(null);
-  const [loadedLatestJob, setLoadedLatestJob] = useState(false);
   const [loadingItems, setLoadingItems] = useState(true);
   const [starting, setStarting] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileReady, setTurnstileReady] = useState(false);
+  const loadedLatestJobRef = useRef(false);
   const [points, setPoints] = useState<PointsState>({
     loading: false,
     found: false,
@@ -292,7 +284,7 @@ export function RedeemApp() {
       }
 
       setJob(data.job);
-      setLoadedLatestJob(true);
+      loadedLatestJobRef.current = true;
       if (data.job.proxyStatus) {
         setProxyStatus(data.job.proxyStatus);
       }
@@ -344,7 +336,7 @@ export function RedeemApp() {
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setJob(null);
-    setLoadedLatestJob(false);
+    loadedLatestJobRef.current = false;
     setPoints({ loading: false, found: false, points: 0, error: null });
     await loadStatus();
   }
@@ -403,11 +395,11 @@ export function RedeemApp() {
   }, [job, loadPoints]);
 
   useEffect(() => {
-    if (!auth?.authenticated || loadedLatestJob || job) {
+    if (!auth?.authenticated || loadedLatestJobRef.current || job) {
       return;
     }
 
-    setLoadedLatestJob(true);
+    loadedLatestJobRef.current = true;
     void (async () => {
       const response = await fetch("/api/redeem/jobs/latest", {
         cache: "no-store",
@@ -423,10 +415,10 @@ export function RedeemApp() {
         }
       }
     })();
-  }, [auth?.authenticated, job, loadedLatestJob]);
+  }, [auth?.authenticated, job]);
 
   if (!auth) {
-    return <AuthGate2 configured={true} loading />;
+    return <AuthCheckingShell />;
   }
 
   if (!auth.authenticated) {
@@ -440,30 +432,31 @@ export function RedeemApp() {
         strategy="afterInteractive"
         onLoad={() => setTurnstileReady(true)}
       />
-      <main className="relative min-h-screen overflow-hidden bg-background text-foreground">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.075),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.045),transparent_30%),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(0,0,0,0.82))]" />
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
-
-        <section className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl flex-col px-3 py-3 sm:px-6 sm:py-5 lg:px-8">
-          <header className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-center sm:justify-between sm:pb-5">
+      <main className="min-h-screen bg-background text-foreground">
+        <section className="app-shell-enter mx-auto flex min-h-screen w-full max-w-[1700px] flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
+          <header className="flex items-center justify-between gap-3 pb-3 sm:items-end sm:pb-4">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary" className="rounded-md">
-                  eazykeee chat
-                </Badge>
-                {proxyStatus && !proxyStatus.ok ? (
-                  <Badge variant="destructive" className="rounded-md">
-                    proxy hiba
-                  </Badge>
-                ) : null}
-              </div>
-              <h1 className="mt-3 text-2xl font-semibold tracking-normal text-balance sm:text-5xl">
+              <h1 className="truncate text-lg font-semibold tracking-normal sm:text-2xl">
                 Kicklet Bulk Redeem
               </h1>
             </div>
 
-            <div className="flex shrink-0 items-center">
-              <Button variant="outline" onClick={() => void logout()} className="w-full sm:w-auto">
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="flex items-center gap-1.5 rounded-md border border-input bg-input/30 px-2 py-1.5 font-mono text-xs text-muted-foreground sm:gap-2 sm:px-2.5">
+                <Coins className="size-3.5 shrink-0" />
+                {points.loading ? (
+                  <Skeleton className="h-3.5 w-12" />
+                ) : (
+                  <span>{formatNumber(points.points)}</span>
+                )}
+              </span>
+              {auth.userName ? (
+                <span className="flex max-w-[34vw] items-center gap-1.5 rounded-md border border-input bg-input/30 px-2 py-1.5 font-mono text-xs text-muted-foreground sm:max-w-none sm:gap-2 sm:px-2.5">
+                  <User className="size-3.5 shrink-0" />
+                  <span className="truncate">@{auth.userName}</span>
+                </span>
+              ) : null}
+              <Button variant="outline" onClick={() => void logout()} className="h-8 px-2.5">
                 <LogOut className="size-4" />
                 Kilépés
               </Button>
@@ -484,15 +477,15 @@ export function RedeemApp() {
             </div>
           ) : null}
 
-          <div className="grid flex-1 gap-3 py-3 sm:gap-4 sm:py-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)]">
-            <Card className="rounded-lg border-white/10 bg-black/50 shadow-none backdrop-blur">
-              <CardHeader className="pb-3 sm:pb-6">
-                <CardTitle className="flex items-center gap-2 text-xl">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
+            <section className="rounded-lg border border-border/80 bg-card/70 p-3 shadow-none sm:p-5">
+              <div className="mb-3 flex items-center justify-between gap-3 border-b border-border/70 pb-3 sm:mb-4 sm:pb-4">
+                <h2 className="flex items-center gap-2 text-base font-semibold">
                   <ShoppingBag className="size-5" />
                   Redeem
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 sm:space-y-5">
+                </h2>
+              </div>
+              <div className="space-y-3 sm:space-y-5">
                 {auth?.configured === false ? (
                   <StatusLine
                     tone="error"
@@ -501,7 +494,7 @@ export function RedeemApp() {
                 ) : null}
                 {error ? <StatusLine tone="error" text={error} /> : null}
                 {auth?.authenticated && !auth.userName ? (
-                  <Alert className="rounded-md border-white/10 bg-white/[0.04]">
+                  <Alert className="rounded-md border-border/80 bg-muted/20">
                     <AlertCircle className="size-4" />
                     <AlertDescription>
                       Régi token: authorizálj újra a pontszámhoz.
@@ -509,108 +502,67 @@ export function RedeemApp() {
                   </Alert>
                 ) : null}
 
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <InfoTile
-                    icon={<User className="size-4" />}
-                    label="Kick user"
-                    value={auth?.userName ? `@${auth.userName}` : "-"}
-                  />
-                  <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-                    <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                      <Coins className="size-4" />
-                      Pontszám
-                    </div>
-                    {points.loading ? (
-                      <Skeleton className="mt-2 h-7 w-24" />
-                    ) : (
-                      <div className="mt-1 font-mono text-2xl">
-                        {formatNumber(points.points)}
-                      </div>
-                    )}
-                    {points.error ? (
-                      <div className="mt-1 text-xs text-red-300">{points.error}</div>
-                    ) : null}
-                  </div>
-                </div>
+                {points.error ? (
+                  <StatusLine tone="error" text={points.error} />
+                ) : null}
 
                 <div className="grid gap-2">
+                  <div className="grid gap-2">
                   <Label>Item</Label>
                   <Select
                     value={selectedItemId}
                     onValueChange={setSelectedItemId}
                     disabled={loadingItems || items.length === 0}
                   >
-                    <SelectTrigger className="h-12 rounded-md">
+                    <SelectTrigger
+                      key={selectedItemId || "empty-item"}
+                      className="item-select-motion h-12 w-full rounded-md"
+                    >
                       <SelectValue
                         placeholder={
                           loadingItems ? "Itemek betöltése..." : "Válassz itemet"
                         }
                       />
                     </SelectTrigger>
-                    <SelectContent>
-                      {items.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
+                    <SelectContent className="item-dropdown-motion">
+                      {items.map((item, index) => (
+                        <SelectItem
+                          key={item.id}
+                          value={item.id}
+                          className="item-option-motion"
+                          style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
+                        >
                           {item.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  </div>
+
+                  <div
+                    key={selectedItemId || "empty-total"}
+                    className="item-summary-motion grid grid-cols-2 gap-2"
+                  >
+                    <InfoTile
+                      icon={<Coins className="size-4" />}
+                      label="Összesen"
+                      value={selectedPrice ? formatNumber(totalCost) : "-"}
+                    />
+                    <InfoTile
+                      icon={<Clock3 className="size-4" />}
+                      label="Becsült idő"
+                      value={formatDuration(estimatedSeconds)}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid gap-2">
                   <Label>Darab</Label>
-                  <div className="grid grid-cols-[44px_minmax(0,1fr)_44px_64px] gap-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setQuantity((value) => Math.max(1, value - 1))}
-                    >
-                      <Minus className="size-4" />
-                    </Button>
-                    <Input
-                      className="h-11 rounded-md text-center font-mono text-base"
-                      inputMode="numeric"
-                      min={1}
-                      type="number"
-                      value={quantity}
-                      onChange={(event) =>
-                        setQuantity(
-                          Math.max(1, Math.floor(Number(event.target.value) || 1)),
-                        )
-                      }
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setQuantity((value) => value + 1)}
-                    >
-                      <Plus className="size-4" />
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      className="rounded-md px-2"
-                      onClick={useMaxQuantity}
-                      disabled={!selectedPrice || !points.points}
-                    >
-                      Max
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <InfoTile
-                    icon={<Coins className="size-4" />}
-                    label="Ár / összesen"
-                    value={
-                      selectedPrice
-                        ? `${formatNumber(selectedPrice)} / ${formatNumber(totalCost)}`
-                        : "-"
-                    }
-                  />
-                  <InfoTile
-                    icon={<Clock3 className="size-4" />}
-                    label="Becsült idő"
-                    value={formatDuration(estimatedSeconds)}
+                  <QuantityControl
+                    disabledMax={!selectedPrice || !points.points}
+                    onChange={setQuantity}
+                    onMax={useMaxQuantity}
+                    value={quantity}
                   />
                 </div>
 
@@ -620,32 +572,29 @@ export function RedeemApp() {
                 />
 
                 <Button
-                  className="h-12 w-full rounded-md text-base"
+                  className="redeem-start-motion h-12 w-full rounded-md text-base"
                   onClick={requestStart}
                   disabled={!canStart}
                 >
-                  {starting ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Play className="size-4" />
-                  )}
+                  {starting ? <Loader2 className="size-4 animate-spin" /> : null}
                   Start
                 </Button>
-              </CardContent>
-            </Card>
+              </div>
+            </section>
 
-            <Card className="rounded-lg border-white/10 bg-black/50 shadow-none backdrop-blur">
-              <CardHeader className="pb-3 sm:pb-6">
-                <CardTitle className="flex items-center justify-between gap-2 text-xl">
+            <section className="rounded-lg border border-border/80 bg-card/70 p-3 shadow-none sm:p-5">
+              <div className="mb-3 flex items-center justify-between gap-3 border-b border-border/70 pb-3 sm:mb-4 sm:pb-4">
+                <h2 className="flex items-center gap-2 text-base font-semibold">
                   <span className="flex items-center gap-2">
                     <Radio className="size-5" />
                     Job
                   </span>
+                </h2>
                   {job ? (
                     <span className="flex shrink-0 items-center gap-2">
-                      <Badge variant="outline" className="rounded-md">
+                      <span className="rounded-md border border-input bg-input/30 px-2 py-1.5 text-xs font-medium text-muted-foreground">
                         {statusLabels[job.status]}
-                      </Badge>
+                      </span>
                       {canCancel ? (
                         <Button
                           variant="destructive"
@@ -664,9 +613,8 @@ export function RedeemApp() {
                       ) : null}
                     </span>
                   ) : null}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-5">
+              </div>
+              <div className="space-y-5">
                 {job ? (
                   <>
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -692,38 +640,105 @@ export function RedeemApp() {
                       }
                     />
                     <Separator />
-                    <div className="max-h-[45vh] min-h-[220px] overflow-hidden rounded-lg border border-white/10 bg-black/40 p-2 sm:min-h-[260px]">
-                      <div className="custom-scroll grid max-h-[calc(45vh-16px)] gap-2 overflow-y-auto pr-1">
-                      {job.logs.length ? (
-                        job.logs.map((line, index) => (
-                          <JobLogLine
-                            key={`${index}-${line}`}
-                            line={line}
-                            index={index}
-                          />
-                        ))
-                      ) : (
-                        <div className="p-8 text-center text-sm text-muted-foreground">
-                          várakozik...
+                    <div className="max-h-[45vh] min-h-[240px] overflow-hidden rounded-lg border border-border/80 bg-[#050505] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:min-h-[280px]">
+                      <div className="flex items-center justify-between border-b border-border/70 bg-muted/10 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="size-2 rounded-full bg-red-400/70" />
+                          <span className="size-2 rounded-full bg-yellow-300/70" />
+                          <span className="size-2 rounded-full bg-emerald-400/70" />
+                          <span className="ml-2 text-xs font-medium text-muted-foreground">
+                            Log
+                          </span>
                         </div>
-                      )}
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {job.logs.length} sor
+                        </span>
+                      </div>
+                      <div className="custom-scroll grid max-h-[calc(45vh-42px)] gap-1 overflow-y-auto p-2">
+                        {job.logs.length ? (
+                          job.logs.map((line, index) => (
+                            <JobLogLine
+                              key={`${index}-${line}`}
+                              line={line}
+                              index={index}
+                            />
+                          ))
+                        ) : (
+                          <div className="grid min-h-[180px] place-items-center text-sm text-muted-foreground">
+                            várakozik...
+                          </div>
+                        )}
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="grid min-h-[360px] place-items-center rounded-lg border border-dashed border-white/15 bg-white/[0.02] text-center text-muted-foreground">
+                  <div className="grid min-h-[360px] place-items-center rounded-lg border border-dashed border-border/80 bg-muted/10 text-center text-muted-foreground">
                     <div>
                       <Radio className="mx-auto mb-3 size-8" />
                       <div>Nincs aktív job</div>
                     </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           </div>
         </section>
       </main>
     </TooltipProvider>
+  );
+}
+
+function AuthCheckingShell() {
+  return (
+    <main className="auth-loading-screen min-h-screen bg-background text-foreground">
+      <div className="loading-trace" aria-hidden="true" />
+      <section className="app-shell-enter mx-auto flex min-h-screen w-full max-w-[1700px] flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
+        <header className="flex items-center justify-between gap-3 pb-3 sm:items-end sm:pb-4">
+          <Skeleton className="h-7 w-56 max-w-[60vw]" />
+          <Skeleton className="h-8 w-20" />
+        </header>
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
+          <section className="rounded-lg border border-border/80 bg-card/70 p-3 shadow-none sm:p-5">
+            <div className="mb-3 flex items-center justify-between border-b border-border/70 pb-3 sm:mb-4 sm:pb-4">
+              <Skeleton className="h-6 w-28" />
+            </div>
+            <div className="space-y-3 sm:space-y-5">
+              <div className="grid grid-cols-2 gap-2">
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+              </div>
+              <Skeleton className="h-12 rounded-md" />
+              <Skeleton className="h-11 rounded-md" />
+              <div className="grid grid-cols-2 gap-2">
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+              </div>
+              <Skeleton className="h-24 rounded-md" />
+              <Skeleton className="h-12 rounded-md" />
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-border/80 bg-card/70 p-3 shadow-none sm:p-5">
+            <div className="mb-3 flex items-center justify-between border-b border-border/70 pb-3 sm:mb-4 sm:pb-4">
+              <Skeleton className="h-6 w-20" />
+              <Skeleton className="h-8 w-24" />
+            </div>
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+                <Skeleton className="h-20 rounded-md" />
+              </div>
+              <Skeleton className="h-1 rounded-full" />
+              <Skeleton className="h-20 rounded-md" />
+              <Skeleton className="min-h-[280px] rounded-lg" />
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -735,22 +750,20 @@ function AuthGate2({
   loading: boolean;
 }) {
   return (
-    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background px-4 py-10 text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.075),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.045),transparent_30%),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(0,0,0,0.82))]" />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
-
-      <section className="relative z-10 w-full max-w-xl rounded-lg border border-white/10 bg-black/55 p-5 shadow-none backdrop-blur sm:p-7">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary" className="rounded-md">
+    <main className="auth-loading-screen grid min-h-screen place-items-center bg-background px-4 py-10 text-foreground">
+      <div className="loading-trace" aria-hidden="true" />
+      <section className="auth-panel-enter w-full max-w-lg rounded-lg border border-border/80 bg-card/70 p-5 shadow-none sm:p-7">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="rounded-md border border-input bg-input/30 px-2 py-1.5">
             Kicklet Bulk Redeem
-          </Badge>
-          <Badge variant="outline" className="rounded-md">
+          </span>
+          <span className="rounded-md border border-input bg-input/30 px-2 py-1.5">
             Kick auth szükséges
-          </Badge>
+          </span>
         </div>
 
         <div className="mt-6 grid gap-4">
-          <div className="grid size-12 place-items-center rounded-md border border-white/10 bg-white/[0.04]">
+          <div className="auth-mark-motion grid size-12 place-items-center rounded-md border border-border bg-muted/20">
             <ShoppingBag className="size-6" />
           </div>
           <div>
@@ -813,17 +826,76 @@ function StatusLine({ tone, text }: { tone: "ok" | "error"; text: string }) {
   const Icon = tone === "ok" ? CheckCircle2 : AlertCircle;
 
   return (
-    <div className="flex items-start gap-2 rounded-md border border-white/10 bg-white/[0.04] p-3 text-sm">
+    <div className="flex items-start gap-2 rounded-md border border-border/80 bg-muted/20 p-3 text-sm">
       <Icon className={tone === "ok" ? "mt-0.5 size-4" : "mt-0.5 size-4 text-red-300"} />
       <span>{text}</span>
     </div>
   );
 }
 
+function QuantityControl({
+  disabledMax,
+  onChange,
+  onMax,
+  value,
+}: {
+  disabledMax: boolean;
+  onChange: (value: number | ((value: number) => number)) => void;
+  onMax: () => void;
+  value: number;
+}) {
+  function setInputValue(nextValue: string) {
+    onChange(Math.max(1, Math.floor(Number(nextValue) || 1)));
+  }
+
+  return (
+    <div className="group flex h-11 overflow-hidden rounded-lg border border-input bg-[#141414] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors focus-within:border-ring/60 hover:bg-[#171717]">
+      <Button
+        aria-label="Kevesebb"
+        className="quantity-action-motion h-full w-11 rounded-none border-0 border-r border-input bg-transparent dark:bg-transparent hover:bg-muted/30 dark:hover:bg-muted/30"
+        size="icon"
+        variant="outline"
+        onClick={() => onChange((current) => Math.max(1, current - 1))}
+      >
+        <Minus className="size-4" />
+      </Button>
+      <div className="relative min-w-0 flex-1 border-r border-input">
+        <Input
+          aria-label="Darab"
+          className="[appearance:textfield] h-full rounded-none border-0 bg-transparent text-center font-mono text-base text-foreground shadow-none focus-visible:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          inputMode="numeric"
+          min={1}
+          pattern="[0-9]*"
+          type="text"
+          value={value}
+          onChange={(event) => setInputValue(event.target.value)}
+        />
+      </div>
+      <Button
+        aria-label="Több"
+        className="quantity-action-motion h-full w-11 rounded-none border-0 border-r border-input bg-transparent dark:bg-transparent hover:bg-muted/30 dark:hover:bg-muted/30"
+        size="icon"
+        variant="outline"
+        onClick={() => onChange((current) => current + 1)}
+      >
+        <Plus className="size-4" />
+      </Button>
+      <Button
+        className="quantity-action-motion h-full w-[72px] rounded-none border-0 bg-transparent px-2 font-semibold dark:bg-transparent hover:bg-muted/30 dark:hover:bg-muted/30"
+        disabled={disabledMax}
+        variant="ghost"
+        onClick={onMax}
+      >
+        Max
+      </Button>
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-      <div className="text-xs uppercase text-muted-foreground">{label}</div>
+    <div className="rounded-md border border-input bg-input/30 p-3">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
       <div className="mt-1 font-mono text-2xl">{value}</div>
     </div>
   );
@@ -839,8 +911,8 @@ function InfoTile({
   value: string;
 }) {
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.04] p-3">
-      <div className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
+    <div className="rounded-md border border-input bg-input/30 p-3">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         {icon}
         {label}
       </div>
@@ -859,18 +931,19 @@ function JobLogLine({ line, index }: { line: string; index: number }) {
   return (
     <div
       className={cn(
-        "grid gap-1 rounded-md border px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3",
+        "log-line-motion grid gap-1 rounded-md border px-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3",
         isProxyError
           ? "border-red-400/25 bg-red-500/10 text-red-100"
           : isSuccess
             ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-            : "border-white/10 bg-white/[0.04] text-muted-foreground",
+            : "border-transparent bg-white/[0.035] text-muted-foreground",
       )}
+      style={{ animationDelay: `${Math.min(index, 8) * 35}ms` }}
     >
       <span className="min-w-0 break-words leading-5">{message}</span>
       <span className="flex items-center gap-2 text-xs text-muted-foreground sm:justify-end">
-        <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 uppercase">
-          {isProxyError ? "proxy" : isSuccess ? "siker" : "napló"}
+        <span className="rounded-md border border-input bg-background/60 px-2 py-1 font-medium">
+          {isProxyError ? "proxy" : isSuccess ? "siker" : "log"}
         </span>
         {time ? <span>{time}</span> : <span>#{index + 1}</span>}
       </span>
@@ -927,8 +1000,8 @@ function TurnstileBox({
   }, [activeSiteKey, container, onToken, scriptReady]);
 
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-      <div className="mb-2 text-sm text-muted-foreground">
+    <div className="grid gap-2">
+      <div className="text-sm text-muted-foreground">
         Cloudflare ellenőrzés
       </div>
       <div ref={setContainer} className="min-h-[65px]" />
