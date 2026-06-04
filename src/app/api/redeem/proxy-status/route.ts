@@ -12,9 +12,9 @@ export async function GET() {
         proxyStatus: {
           ok: false,
           state: "unknown",
-          title: "Proxy status hiba",
+          title: "Proxy státusz hiba",
           summary:
-            error instanceof Error ? error.message : "Nem sikerult lekerdezni",
+            error instanceof Error ? error.message : "Nem sikerült lekérdezni",
           publishedAt: null,
           checkedAt: new Date().toISOString(),
         },

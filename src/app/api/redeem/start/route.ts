@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     if (points.ok && points.found && points.points < totalCost) {
       return Response.json(
         {
-          error: `Nincs eleg pont (${points.points}/${totalCost})`,
+          error: `Nincs elég pont (${points.points}/${totalCost})`,
         },
         { status: 400 },
       );

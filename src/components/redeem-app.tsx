@@ -9,7 +9,6 @@ import {
   Clock3,
   Coins,
   Loader2,
-  LogIn,
   LogOut,
   Minus,
   Play,
@@ -725,68 +724,6 @@ export function RedeemApp() {
   );
 }
 
-function AuthGate({
-  configured,
-  loading,
-}: {
-  configured: boolean;
-  loading: boolean;
-}) {
-  return (
-    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background px-4 py-10 text-foreground">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.075),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.045),transparent_30%),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(0,0,0,0.82))]" />
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:64px_64px] opacity-35" />
-
-      <section className="relative z-10 w-full max-w-xl rounded-lg border border-white/10 bg-black/55 p-5 shadow-none backdrop-blur sm:p-7">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary" className="rounded-md">
-            Kicklet Bulk Redeem
-          </Badge>
-          <Badge variant="outline" className="rounded-md">
-            Kick auth szukseges
-          </Badge>
-        </div>
-
-        <div className="mt-6 grid gap-4">
-          <div className="grid size-12 place-items-center rounded-md border border-white/10 bg-white/[0.04]">
-            <ShoppingBag className="size-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-normal sm:text-4xl">
-              Jelentkezz be Kickkel
-            </h1>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-              Ez az oldal a kiválasztott Kicklet itemet tudja kiváltani a megadott mennyiségben. Ehhez Kick authorizáció kell, hogy lássa a Kick nevedet és az item kiváltásakor üzenetet tudjon küldeni a nevedben.
-            </p>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-              Fontos: az oldal a nevedben semmit nem ír, csak az általad indított item kiváltás üzenetét.
-            </p>
-          </div>
-
-          {loading ? (
-            <Button disabled className="h-12 w-full rounded-md text-base">
-              <Loader2 className="size-4 animate-spin" />
-              Betoltes
-            </Button>
-          ) : configured ? (
-            <Button asChild className="h-12 w-full rounded-md text-base">
-              <a href="/api/auth/kick/start">
-                <LogIn className="size-4" />
-                Kick login
-              </a>
-            </Button>
-          ) : (
-            <Button disabled className="h-12 w-full rounded-md text-base">
-              <AlertCircle className="size-4" />
-              Kick auth nincs beallitva
-            </Button>
-          )}
-        </div>
-      </section>
-    </main>
-  );
-}
-
 function AuthGate2({
   configured,
   loading,
@@ -930,7 +867,7 @@ function JobLogLine({ line, index }: { line: string; index: number }) {
       <span className="min-w-0 break-words leading-5">{message}</span>
       <span className="flex items-center gap-2 text-xs text-muted-foreground sm:justify-end">
         <span className="rounded-md border border-white/10 bg-black/25 px-2 py-1 uppercase">
-          {isProxyError ? "proxy" : isSuccess ? "siker" : "naplo"}
+          {isProxyError ? "proxy" : isSuccess ? "siker" : "napló"}
         </span>
         {time ? <span>{time}</span> : <span>#{index + 1}</span>}
       </span>
