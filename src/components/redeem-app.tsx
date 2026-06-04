@@ -472,12 +472,11 @@ export function RedeemApp() {
                 <Badge variant="secondary" className="rounded-md">
                   eazykeee chat
                 </Badge>
-                <Badge
-                  variant={proxyStatus?.ok ? "default" : "destructive"}
-                  className="rounded-md"
-                >
-                  {proxyStatus?.ok ? "proxy rendben" : "proxy hiba"}
-                </Badge>
+                {proxyStatus && !proxyStatus.ok ? (
+                  <Badge variant="destructive" className="rounded-md">
+                    proxy hiba
+                  </Badge>
+                ) : null}
               </div>
               <h1 className="mt-3 text-2xl font-semibold tracking-normal text-balance sm:text-5xl">
                 Kicklet Bulk Redeem
