@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -11,12 +10,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-export const metadata: Metadata = {
-  title: "Kicklet Bulk Redeem",
-  description:
-    "Letisztult bulk redeem felület Kicklet itemek gyors, kontrollált kiváltásához.",
-};
 
 export default function RootLayout({
   children,
