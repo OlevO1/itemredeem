@@ -306,6 +306,10 @@ export function RedeemApp() {
       const nextJob = data.job || data.jobs?.[0];
 
       if (!response.ok || !nextJob) {
+        if (response.status === 401) {
+          await loadStatus();
+        }
+
         throw new Error(data.error || "Nem indult el");
       }
 

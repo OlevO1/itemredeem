@@ -4,7 +4,11 @@ import {
   getMaxRedeemQuantity,
 } from "@/lib/server/kick-api";
 import { backendRequest } from "@/lib/server/backend-client";
-import { readSession, setSessionCookie } from "@/lib/server/kick-session";
+import {
+  clearSessionCookie,
+  readSession,
+  setSessionCookie,
+} from "@/lib/server/kick-session";
 import { findKickletItem } from "@/lib/server/kicklet-items";
 import { lookupKickletPoints } from "@/lib/server/kicklet-points";
 
@@ -15,7 +19,12 @@ export async function POST(request: NextRequest) {
   const session = readSession(request);
 
   if (!session) {
-    return Response.json({ error: "Kick authorization required" }, { status: 401 });
+    const response = NextResponse.json(
+      { error: "Kick authorization required. Please sign in again." },
+      { status: 401 },
+    );
+    clearSessionCookie(response);
+    return response;
   }
 
   const body = (await request.json().catch(() => null)) as {
@@ -85,6 +94,8 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         session: {
           accessToken: freshness.session.accessToken,
+          refreshToken: freshness.session.refreshToken,
+          expiresAt: freshness.session.expiresAt,
           userName: freshness.session.userName,
         },
         item,

@@ -1,18 +1,35 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
+  ensureFreshSession,
   getMaxRedeemQuantity,
   getRedeemDelayMs,
   isKickConfigured,
 } from "@/lib/server/kick-api";
-import { isTestAuthEnabled, readSession } from "@/lib/server/kick-session";
+import {
+  clearSessionCookie,
+  isTestAuthEnabled,
+  readSession,
+  setSessionCookie,
+} from "@/lib/server/kick-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const session = readSession(request);
+  let session = readSession(request);
+  let refreshed = false;
 
-  return Response.json({
+  if (session && !isTestAuthEnabled() && session.expiresAt <= Date.now()) {
+    try {
+      const freshness = await ensureFreshSession(session);
+      session = freshness.session;
+      refreshed = freshness.refreshed;
+    } catch {
+      session = null;
+    }
+  }
+
+  const response = NextResponse.json({
     authenticated: Boolean(session?.accessToken && session.expiresAt > Date.now()),
     configured: isTestAuthEnabled() || isKickConfigured(),
     scope: session?.scope || null,
@@ -22,4 +39,12 @@ export async function GET(request: NextRequest) {
     redeemDelayMs: getRedeemDelayMs(),
     maxQuantity: getMaxRedeemQuantity(),
   });
+
+  if (!session && !isTestAuthEnabled()) {
+    clearSessionCookie(response);
+  } else if (session && refreshed) {
+    setSessionCookie(response, session);
+  }
+
+  return response;
 }

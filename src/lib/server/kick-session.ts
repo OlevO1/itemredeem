@@ -155,14 +155,30 @@ export function clearAuthCookies(response: NextResponse) {
   response.cookies.set(OAUTH_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
 }
 
+export function clearSessionCookie(response: NextResponse) {
+  response.cookies.set(SESSION_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
+}
+
+export function isCompleteKickSession(
+  session: KickSession | null,
+): session is KickSession {
+  return Boolean(
+    session?.accessToken &&
+      session.refreshToken &&
+      session.userName &&
+      Number.isFinite(session.expiresAt),
+  );
+}
+
 export function readSession(request: NextRequest) {
   if (isTestAuthEnabled()) {
     return testSession();
   }
 
   const raw = request.cookies.get(SESSION_COOKIE)?.value;
+  const session = raw ? decryptJson<KickSession>(raw) : null;
 
-  return raw ? decryptJson<KickSession>(raw) : null;
+  return isCompleteKickSession(session) ? session : null;
 }
 
 export function readOAuthState(request: NextRequest) {
