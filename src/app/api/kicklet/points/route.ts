@@ -21,5 +21,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return Response.json(await lookupKickletPoints(userName));
+  const result = await lookupKickletPoints(userName);
+
+  if (!result.ok) {
+    console.error("[API /api/kicklet/points] failed:", result.error || "Unknown error");
+  }
+
+  return Response.json(result);
 }

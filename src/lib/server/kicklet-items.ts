@@ -1,3 +1,5 @@
+import { fetchKickletJson } from "@/lib/server/kicklet-request";
+
 const KICKLET_ITEMS_URL =
   "https://kicklet.app/api/shop/eazykeee/item?page=1&pageSize=100";
 
@@ -44,25 +46,24 @@ export async function fetchKickletItems({ force = false } = {}) {
     return cache.items;
   }
 
-  const response = await fetch(KICKLET_ITEMS_URL, {
-    headers: {
-      accept: "application/json, text/plain, */*",
-      referer: "https://kicklet.app/user/eazykeee/shop",
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    },
-    cache: "no-store",
-  });
+  const response = await fetchKickletJson(KICKLET_ITEMS_URL);
 
   if (!response.ok) {
     throw new Error(`Kicklet items failed (${response.status})`);
   }
 
-  const data = await response.json();
-  const rawItems = Array.isArray(data?.items)
-    ? data.items
-    : Array.isArray(data?.data)
-      ? data.data
+  const data = response.data as
+    | { items?: unknown[]; data?: unknown[] }
+    | unknown[]
+    | null;
+  const record =
+    data && !Array.isArray(data)
+      ? (data as { items?: unknown[]; data?: unknown[] })
+      : null;
+  const rawItems = Array.isArray(record?.items)
+    ? record.items
+    : Array.isArray(record?.data)
+      ? record.data
       : Array.isArray(data)
         ? data
         : [];

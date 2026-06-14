@@ -1,3 +1,5 @@
+import { fetchKickletJson } from "@/lib/server/kicklet-request";
+
 const DEFAULT_KICKLET_KICK_ID = "4000584";
 
 export type KickletPoints = {
@@ -70,15 +72,7 @@ export async function lookupKickletPoints(viewer: string): Promise<KickletPoints
   url.searchParams.set("order", "desc");
   url.searchParams.set("search", clean);
 
-  const response = await fetch(url, {
-    headers: {
-      accept: "application/json, text/plain, */*",
-      referer: "https://kicklet.app/user/eazykeee/shop",
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    },
-    cache: "no-store",
-  });
+  const response = await fetchKickletJson(url.toString());
 
   if (!response.ok) {
     return {
@@ -90,7 +84,7 @@ export async function lookupKickletPoints(viewer: string): Promise<KickletPoints
     };
   }
 
-  const data = await response.json();
+  const data = response.data;
   const row = findViewerRanking(data, clean) as {
     points?: unknown;
     viewerKickUsername?: unknown;
