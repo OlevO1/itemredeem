@@ -12,15 +12,28 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const OAUTH_STATE_MAX_AGE_MS = 10 * 60 * 1000;
+
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code") || "";
   const state = request.nextUrl.searchParams.get("state") || "";
   const stored = readOAuthState(request);
   const homeUrl = new URL("/", request.nextUrl.origin);
 
-  if (!code || !state || !stored || !safeEquals(state, stored.state)) {
+  const storedAge = stored ? Date.now() - stored.createdAt : Number.POSITIVE_INFINITY;
+  const validStoredState =
+    stored &&
+    typeof stored.state === "string" &&
+    typeof stored.codeVerifier === "string" &&
+    Number.isFinite(stored.createdAt) &&
+    storedAge >= 0 &&
+    storedAge <= OAUTH_STATE_MAX_AGE_MS;
+
+  if (!code || !state || !validStoredState || !safeEquals(state, stored.state)) {
     homeUrl.searchParams.set("auth", "failed");
-    return NextResponse.redirect(homeUrl);
+    const response = NextResponse.redirect(homeUrl);
+    response.cookies.set(OAUTH_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
+    return response;
   }
 
   try {

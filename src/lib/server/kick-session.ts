@@ -23,6 +23,10 @@ export type OAuthState = {
 };
 
 export function isTestAuthEnabled() {
+  if (process.env.NODE_ENV === "production") {
+    return false;
+  }
+
   const raw = process.env.TEST ?? process.env.test ?? "";
 
   return /^(1|true|yes|on)$/iu.test(raw.trim());

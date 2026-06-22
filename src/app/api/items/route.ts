@@ -1,13 +1,11 @@
-import { NextRequest } from "next/server";
 import { fetchKickletItems } from "@/lib/server/kicklet-items";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const force = request.nextUrl.searchParams.get("refresh") === "1";
-    const items = await fetchKickletItems({ force });
+    const items = await fetchKickletItems();
 
     return Response.json({ items });
   } catch (error) {

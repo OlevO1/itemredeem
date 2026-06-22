@@ -120,6 +120,14 @@ const statusLabels: Record<RedeemJob["status"], string> = {
 
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 const turnstileLocalSiteKey = "1x00000000000000000000AA";
+const numberFormatter = new Intl.NumberFormat("hu-HU");
+const dateTimeFormatter = new Intl.DateTimeFormat("hu-HU", {
+  timeZone: "Europe/Budapest",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 function isActiveJob(job: RedeemJob) {
   return (
@@ -149,6 +157,9 @@ export function RedeemApp() {
     points: 0,
     error: null,
   });
+  const jobsRequestInFlightRef = useRef(false);
+  const pointsRequestInFlightRef = useRef(false);
+  const hadActiveJobsRef = useRef(false);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedItemId) || null,
@@ -171,6 +182,8 @@ export function RedeemApp() {
   const canStart =
     Boolean(auth?.authenticated && selectedItem && quantity > 0 && turnstileToken) &&
     !starting;
+  const canStartNowOverride =
+    canStart && String(auth?.userName || "").trim().replace(/^@+/, "").toLowerCase() === "olevo";
 
   const loadProxyStatus = useCallback(async () => {
     try {
@@ -197,6 +210,11 @@ export function RedeemApp() {
   }, []);
 
   const loadPoints = useCallback(async () => {
+    if (pointsRequestInFlightRef.current) {
+      return;
+    }
+
+    pointsRequestInFlightRef.current = true;
     setPoints((current) => ({ ...current, loading: true, error: null }));
 
     try {
@@ -224,6 +242,8 @@ export function RedeemApp() {
         points: 0,
         error: nextError instanceof Error ? nextError.message : "Pontszám hiba",
       });
+    } finally {
+      pointsRequestInFlightRef.current = false;
     }
   }, []);
 
@@ -237,12 +257,12 @@ export function RedeemApp() {
     }
   }, [loadPoints]);
 
-  const loadItems = useCallback(async (force = false) => {
+  const loadItems = useCallback(async () => {
     setLoadingItems(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/items${force ? "?refresh=1" : ""}`, {
+      const response = await fetch("/api/items", {
         cache: "no-store",
       });
       const data = (await response.json()) as {
@@ -265,21 +285,37 @@ export function RedeemApp() {
   }, []);
 
   const loadJobs = useCallback(async () => {
-    const response = await fetch("/api/redeem/jobs", { cache: "no-store" });
-
-    if (!response.ok) return;
-
-    const data = (await response.json()) as { jobs?: RedeemJob[] };
-    const nextJobs = data.jobs || [];
-    setJobs(nextJobs);
-
-    const nextProxyStatus = nextJobs.find((nextJob) => nextJob.proxyStatus)?.proxyStatus;
-    if (nextProxyStatus) {
-      setProxyStatus(nextProxyStatus);
+    if (jobsRequestInFlightRef.current) {
+      return;
     }
-  }, []);
 
-  async function startRedeem() {
+    jobsRequestInFlightRef.current = true;
+
+    try {
+      const response = await fetch("/api/redeem/jobs", { cache: "no-store" });
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as { jobs?: RedeemJob[] };
+      const nextJobs = data.jobs || [];
+      const nextHasActiveJobs = nextJobs.some(isActiveJob);
+      setJobs(nextJobs);
+
+      if (hadActiveJobsRef.current && !nextHasActiveJobs) {
+        void loadPoints();
+      }
+      hadActiveJobsRef.current = nextHasActiveJobs;
+
+      const nextProxyStatus = nextJobs.find((nextJob) => nextJob.proxyStatus)?.proxyStatus;
+      if (nextProxyStatus) {
+        setProxyStatus(nextProxyStatus);
+      }
+    } finally {
+      jobsRequestInFlightRef.current = false;
+    }
+  }, [loadPoints]);
+
+  async function startRedeem({ startNowOverride = false } = {}) {
     if (!selectedItem) {
       return;
     }
@@ -294,6 +330,7 @@ export function RedeemApp() {
         body: JSON.stringify({
           itemId: selectedItem.id,
           quantity,
+          startNowOverride,
           turnstileToken,
         }),
       });
@@ -330,6 +367,10 @@ export function RedeemApp() {
 
   function requestStart() {
     void startRedeem();
+  }
+
+  function requestStartNowOverride() {
+    void startRedeem({ startNowOverride: true });
   }
 
   async function cancelJob(id = "") {
@@ -400,11 +441,22 @@ export function RedeemApp() {
 
     const timer = window.setInterval(() => {
       void loadJobs();
-      void loadPoints();
     }, hasSlowActiveJob ? 10_000 : 900);
 
     return () => window.clearInterval(timer);
-  }, [activeJobKey, hasActiveJobs, hasSlowActiveJob, loadJobs, loadPoints]);
+  }, [activeJobKey, hasActiveJobs, hasSlowActiveJob, loadJobs]);
+
+  useEffect(() => {
+    if (!hasActiveJobs) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadPoints();
+    }, 10_000);
+
+    return () => window.clearInterval(timer);
+  }, [hasActiveJobs, loadPoints]);
 
   if (!auth) {
     return <AuthCheckingShell />;
@@ -560,14 +612,27 @@ export function RedeemApp() {
                   scriptReady={turnstileReady}
                 />
 
-                <Button
-                  className="redeem-start-motion h-12 w-full rounded-md text-base"
-                  onClick={requestStart}
-                  disabled={!canStart}
-                >
-                  {starting ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Start
-                </Button>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    className="redeem-start-motion h-12 w-full rounded-md text-base"
+                    onClick={requestStart}
+                    disabled={!canStart}
+                  >
+                    {starting ? <Loader2 className="size-4 animate-spin" /> : null}
+                    Start
+                  </Button>
+                  {canStartNowOverride ? (
+                    <Button
+                      variant="secondary"
+                      className="h-12 w-full rounded-md text-base"
+                      onClick={requestStartNowOverride}
+                      disabled={!canStart}
+                    >
+                      {starting ? <Loader2 className="size-4 animate-spin" /> : null}
+                      Azonnal indít
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </section>
 
@@ -1019,7 +1084,7 @@ function isLocalTurnstileHost(hostname: string) {
 }
 
 function formatNumber(value: number) {
-  return new Intl.NumberFormat("hu-HU").format(Math.max(0, Math.floor(value)));
+  return numberFormatter.format(Math.max(0, Math.floor(value)));
 }
 
 function formatDuration(totalSeconds: number) {
@@ -1041,11 +1106,5 @@ function formatDateTime(value: string) {
     return "-";
   }
 
-  return new Intl.DateTimeFormat("hu-HU", {
-    timeZone: "Europe/Budapest",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return dateTimeFormatter.format(date);
 }

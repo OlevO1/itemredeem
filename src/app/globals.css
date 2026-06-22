@@ -275,6 +275,32 @@
   .log-line-motion {
     animation: log-line-enter 360ms ease both;
   }
+
+  .custom-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(95 95 95 / 0.85) rgb(8 8 8 / 0.92);
+  }
+
+  .custom-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .custom-scroll::-webkit-scrollbar-track {
+    background: rgb(8 8 8 / 0.92);
+    border-radius: 999px;
+  }
+
+  .custom-scroll::-webkit-scrollbar-thumb {
+    min-height: 36px;
+    background: rgb(95 95 95 / 0.85);
+    border: 2px solid rgb(8 8 8 / 0.92);
+    border-radius: 999px;
+  }
+
+  .custom-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgb(130 130 130 / 0.9);
+  }
 }
 
 @keyframes panel-enter {

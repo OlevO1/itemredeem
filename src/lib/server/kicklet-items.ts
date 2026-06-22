@@ -15,6 +15,7 @@ let cache: {
   items: ShopItem[];
   fetchedAt: number;
 } | null = null;
+let pending: Promise<ShopItem[]> | null = null;
 
 const CACHE_TIME = 60 * 60 * 1000;
 
@@ -41,11 +42,7 @@ function normalizeItem(raw: Record<string, unknown>, index: number): ShopItem | 
   };
 }
 
-export async function fetchKickletItems({ force = false } = {}) {
-  if (!force && cache && Date.now() - cache.fetchedAt < CACHE_TIME) {
-    return cache.items;
-  }
-
+async function refreshKickletItems() {
   const response = await fetchKickletJson(KICKLET_ITEMS_URL);
 
   if (!response.ok) {
@@ -80,6 +77,24 @@ export async function fetchKickletItems({ force = false } = {}) {
   };
 
   return items;
+}
+
+export async function fetchKickletItems({ force = false } = {}) {
+  if (!force && cache && Date.now() - cache.fetchedAt < CACHE_TIME) {
+    return cache.items;
+  }
+
+  if (pending) {
+    return pending;
+  }
+
+  pending = refreshKickletItems();
+
+  try {
+    return await pending;
+  } finally {
+    pending = null;
+  }
 }
 
 export async function findKickletItem(itemId: string) {

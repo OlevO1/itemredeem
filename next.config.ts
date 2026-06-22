@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || "http://localhost:3067";
 

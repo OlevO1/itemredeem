@@ -15,6 +15,10 @@ import { lookupKickletPoints } from "@/lib/server/kicklet-points";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function cleanUserName(value: string | null | undefined) {
+  return String(value || "").trim().replace(/^@+/, "").toLowerCase();
+}
+
 export async function POST(request: NextRequest) {
   const session = readSession(request);
 
@@ -31,10 +35,12 @@ export async function POST(request: NextRequest) {
     itemId?: string;
     quantity?: number;
     turnstileToken?: string;
+    startNowOverride?: boolean;
   } | null;
   const itemId = String(body?.itemId || "").trim();
   const quantity = Math.floor(Number(body?.quantity || 0));
   const turnstileToken = String(body?.turnstileToken || "").trim();
+  const startNowOverride = Boolean(body?.startNowOverride);
   const maxQuantity = getMaxRedeemQuantity();
 
   if (!itemId) {
@@ -68,12 +74,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (startNowOverride && cleanUserName(session.userName) !== "olevo") {
+    return Response.json(
+      { error: "Azonnali indítás csak olevo usernek engedélyezett" },
+      { status: 403 },
+    );
+  }
+
   const itemPrice = Number(item.price || 0);
   if (itemPrice > 0) {
     const points = await lookupKickletPoints(session.userName);
     const totalCost = itemPrice * quantity;
 
-    if (points.ok && points.found && points.points < totalCost) {
+    if (!points.ok) {
+      return Response.json(
+        {
+          error: points.error || "Kicklet API jelenleg nem elérhető",
+        },
+        { status: points.unavailable ? 503 : 502 },
+      );
+    }
+
+    if (!points.found) {
+      return Response.json(
+        {
+          error: points.error || "Kicklet user nem található",
+        },
+        { status: 404 },
+      );
+    }
+
+    if (points.points < totalCost) {
       return Response.json(
         {
           error: `Nincs elég pont (${points.points}/${totalCost})`,
@@ -83,12 +114,20 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  let freshness: Awaited<ReturnType<typeof ensureFreshSession>>;
+
   try {
-    const freshness = await ensureFreshSession(session);
-    const requestOrigin = request.headers.get("origin") || "";
-    const turnstileHost = requestOrigin
-      ? safeHostname(requestOrigin) || request.nextUrl.hostname
-      : request.nextUrl.hostname;
+    freshness = await ensureFreshSession(session);
+  } catch {
+    const response = NextResponse.json(
+      { error: "Kick authorization expired. Please sign in again." },
+      { status: 401 },
+    );
+    clearSessionCookie(response);
+    return response;
+  }
+
+  try {
     const backend = await backendRequest<{ job: unknown }>("/jobs", {
       method: "POST",
       body: JSON.stringify({
@@ -100,8 +139,9 @@ export async function POST(request: NextRequest) {
         },
         item,
         quantity,
+        startNowOverride,
         turnstileToken,
-        turnstileHost,
+        turnstileHost: request.nextUrl.hostname,
       }),
     });
     const response = NextResponse.json(backend);
@@ -119,13 +159,5 @@ export async function POST(request: NextRequest) {
       },
       { status: 502 },
     );
-  }
-}
-
-function safeHostname(value: string) {
-  try {
-    return new URL(value).hostname;
-  } catch {
-    return "";
   }
 }

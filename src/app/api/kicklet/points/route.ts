@@ -27,5 +27,7 @@ export async function GET(request: NextRequest) {
     console.error("[API /api/kicklet/points] failed:", result.error || "Unknown error");
   }
 
-  return Response.json(result);
+  return Response.json(result, {
+    status: result.ok ? 200 : result.unavailable ? 503 : 502,
+  });
 }

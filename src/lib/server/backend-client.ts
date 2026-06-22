@@ -1,5 +1,5 @@
 function getBackendUrl() {
-  return (process.env.BACKEND_URL || "http://localhost:3117").replace(/\/$/, "");
+  return (process.env.BACKEND_URL || "http://localhost:3067").replace(/\/$/, "");
 }
 
 function getBackendSecret() {
@@ -13,6 +13,10 @@ function getBackendSecret() {
 }
 
 export async function backendRequest<T>(path: string, init: RequestInit = {}) {
+  const timeoutSignal = AbortSignal.timeout(30_000);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
   const response = await fetch(`${getBackendUrl()}${path}`, {
     ...init,
     headers: {
@@ -21,6 +25,7 @@ export async function backendRequest<T>(path: string, init: RequestInit = {}) {
       ...(init.headers || {}),
     },
     cache: "no-store",
+    signal,
   });
   const data = (await response.json().catch(() => null)) as T & {
     error?: string;

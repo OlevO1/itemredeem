@@ -34,6 +34,15 @@ type KickUserResponse = {
 
 let broadcasterUserIdCache: number | null = null;
 
+function fetchWithTimeout(input: string | URL, init: RequestInit = {}) {
+  const timeoutSignal = AbortSignal.timeout(15_000);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+
+  return fetch(input, { ...init, signal });
+}
+
 function requiredEnv(name: string) {
   const value = process.env[name]?.trim();
 
@@ -93,7 +102,7 @@ export async function exchangeCodeForSession({
     code_verifier: codeVerifier,
   });
 
-  const response = await fetch(`${KICK_ID_BASE_URL}/oauth/token`, {
+  const response = await fetchWithTimeout(`${KICK_ID_BASE_URL}/oauth/token`, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -120,7 +129,7 @@ export async function refreshKickSession(
     grant_type: "refresh_token",
   });
 
-  const response = await fetch(`${KICK_ID_BASE_URL}/oauth/token`, {
+  const response = await fetchWithTimeout(`${KICK_ID_BASE_URL}/oauth/token`, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
@@ -133,9 +142,9 @@ export async function refreshKickSession(
   }
 
   return {
-    ...(await attachCurrentUser(
-      tokenResponseToSession((await response.json()) as TokenResponse),
-    )),
+    ...tokenResponseToSession((await response.json()) as TokenResponse),
+    userId: session.userId,
+    userName: session.userName,
   };
 }
 
@@ -167,7 +176,7 @@ function tokenResponseToSession(data: TokenResponse): KickSession {
 }
 
 export async function getCurrentKickUser(accessToken: string) {
-  const response = await fetch(`${KICK_API_BASE_URL}/users`, {
+  const response = await fetchWithTimeout(`${KICK_API_BASE_URL}/users`, {
     headers: {
       accept: "application/json",
       authorization: `Bearer ${accessToken}`,
@@ -219,7 +228,7 @@ async function resolveBroadcasterUserId() {
   }
 
   const slug = process.env.KICK_TARGET_CHANNEL || TARGET_CHANNEL_SLUG;
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${KICK_WEB_BASE_URL}/channels/${encodeURIComponent(slug)}`,
     {
       headers: {
@@ -265,7 +274,7 @@ export async function sendKickChatMessage({
   const gatewayUrl = process.env.KICK_CHAT_GATEWAY_URL || "http://127.0.0.1:2320";
   const gatewayToken = process.env.KICK_CHAT_GATEWAY_TOKEN || "";
   const gatewayClientName = process.env.KICK_CHAT_GATEWAY_CLIENT_NAME || "kickletbulkredeem";
-  const response = await fetch(`${gatewayUrl.replace(/\/$/, "")}/send`, {
+  const response = await fetchWithTimeout(`${gatewayUrl.replace(/\/$/, "")}/send`, {
     method: "POST",
     headers: {
       accept: "application/json",

@@ -1,5 +1,11 @@
 import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata } from "next";
 import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "Kicklet Bulk Redeem",
+  description: "Kicklet itemek ütemezett, tömeges kiváltása.",
+};
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

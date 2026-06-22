@@ -1,160 +1,283 @@
 import { ProxyAgent, request } from "undici";
 import { backendRequest } from "@/lib/server/backend-client";
 
+const KICKLET_REQUEST_TIMEOUT_MS = 10_000;
+const KICKLET_UNAVAILABLE_ERROR = "Kicklet API jelenleg nem elérhető";
 const kickletHeaders = {
   accept: "application/json, text/plain, */*",
-  origin: "https://kicklet.app",
-  referer: "https://kicklet.app/user/eazykeee/shop",
+  "accept-language": "hu-HU,hu;q=0.9,en;q=0.7",
+  "cache-control": "no-cache",
+  pragma: "no-cache",
+  referer: "https://kicklet.app/",
   "user-agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
 };
 
-let proxyAgent: ProxyAgent | null = null;
-let preferProxy = false;
+type KickletMethod = "GET" | "PATCH";
 
-function getProxyUrl() {
-  const proxyUrls = (process.env.PROXY_URLS || "")
+type KickletTarget = {
+  label: string;
+  proxyUrl: string | null;
+};
+
+export type KickletRequestResult = {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  unavailable: boolean;
+};
+
+const proxyAgents = new Map<string, ProxyAgent>();
+let preferredTargetLabel: string | null = null;
+
+export function normalizeKickletApiToken(value: string | null | undefined) {
+  return String(value || "").trim().replace(/^apitoken\s+/i, "");
+}
+
+function configuredProxyUrls() {
+  const explicit = (process.env.PROXY_URLS || "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
 
-  if (proxyUrls.length) {
-    return proxyUrls[0];
+  if (explicit.length) {
+    return [...new Set(explicit)];
   }
 
-  return (process.env.PROXY_TEMPLATE || "").replaceAll("{index}", "1").trim();
+  const template = String(process.env.PROXY_TEMPLATE || "").trim();
+
+  if (!template) {
+    return [];
+  }
+
+  const count = Math.min(
+    20,
+    Math.max(1, Number.parseInt(process.env.KICKLET_PROXY_COUNT || "5", 10) || 5),
+  );
+
+  return Array.from({ length: count }, (_, index) =>
+    template.replaceAll("{index}", String(index + 1)),
+  );
 }
 
-function getProxyAgent() {
-  const proxyUrl = getProxyUrl();
+function requestTargets(method: KickletMethod) {
+  const targets: KickletTarget[] = [
+    { label: "direct", proxyUrl: null },
+    ...configuredProxyUrls().map((proxyUrl, index) => ({
+      label: `proxy#${index + 1}`,
+      proxyUrl,
+    })),
+  ];
+  const preferredIndex = targets.findIndex(
+    (target) => target.label === preferredTargetLabel,
+  );
 
+  if (preferredIndex > 0) {
+    const [preferred] = targets.splice(preferredIndex, 1);
+    targets.unshift(preferred);
+  }
+
+  return method === "GET" ? targets : targets.slice(0, 1);
+}
+
+function dispatcherFor(proxyUrl: string | null) {
   if (!proxyUrl) {
-    return null;
+    return undefined;
   }
 
-  proxyAgent ||= new ProxyAgent(proxyUrl);
-  return proxyAgent;
+  if (!proxyAgents.has(proxyUrl)) {
+    proxyAgents.set(proxyUrl, new ProxyAgent(proxyUrl));
+  }
+
+  return proxyAgents.get(proxyUrl);
 }
 
-async function parseJson(text: string) {
+function isLikelyHtml(text: string) {
+  return /(?:^\s*<!doctype html|^\s*<html\b|<title>Just a moment|cf-chl|cloudflare)/iu.test(
+    text,
+  );
+}
+
+function parseResponse(text: string, contentType: string) {
+  if (!text) {
+    return {
+      data: null,
+      nonJson: false,
+      html: false,
+    };
+  }
+
   try {
-    return JSON.parse(text) as unknown;
+    return {
+      data: JSON.parse(text) as unknown,
+      nonJson: false,
+      html: false,
+    };
   } catch {
-    return null;
+    const html = contentType.includes("text/html") || isLikelyHtml(text);
+
+    return {
+      data: {
+        message: html
+          ? KICKLET_UNAVAILABLE_ERROR
+          : "Kicklet API nem JSON választ adott",
+        nonJsonResponse: true,
+        htmlResponse: html,
+      },
+      nonJson: true,
+      html,
+    };
   }
 }
 
-function logKickletFailure(source: "direct" | "proxy", url: string, status: number, body: string) {
-  const endpoint = new URL(url).pathname;
+function compactLogBody(value: string) {
+  return value.replace(/\s+/gu, " ").trim().slice(0, 4000);
+}
 
-  console.error(`[Kicklet] ${source} request failed`, {
+function logKickletFailure(
+  source: string,
+  method: KickletMethod,
+  url: string,
+  status: number,
+  body: string,
+) {
+  const endpoint = `${new URL(url).pathname}${new URL(url).search}`;
+  const response = compactLogBody(body);
+
+  console.error(`[Kicklet] ${method} ${source} request failed`, {
     endpoint,
     status,
-    response: body,
+    response,
   });
 
   void backendRequest("/logs/kicklet", {
     method: "POST",
     body: JSON.stringify({
-      source,
+      source: `${method} ${source}`,
       endpoint,
       status,
-      response: body,
+      response,
     }),
   }).catch(() => {});
 }
 
-async function requestThroughProxy(url: string) {
-  const dispatcher = getProxyAgent();
+function shouldRetryGet(result: KickletRequestResult) {
+  return (
+    result.unavailable &&
+    (result.status === 0 ||
+      result.status === 403 ||
+      result.status === 429 ||
+      result.status === 502 ||
+      result.status === 503)
+  );
+}
 
-  if (!dispatcher) {
-    return null;
-  }
+async function executeKickletRequest(
+  url: string,
+  target: KickletTarget,
+  options: {
+    method: KickletMethod;
+    apiToken?: string;
+    body?: unknown;
+  },
+): Promise<KickletRequestResult> {
+  const cleanToken = normalizeKickletApiToken(options.apiToken);
+  const authorization = cleanToken ? `apitoken ${cleanToken}` : "";
 
   try {
     const response = await request(url, {
-      method: "GET",
-      headers: kickletHeaders,
-      dispatcher,
+      method: options.method,
+      headers: {
+        ...kickletHeaders,
+        ...(authorization ? { authorization } : {}),
+        ...(options.body ? { "content-type": "application/json" } : {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      dispatcher: dispatcherFor(target.proxyUrl),
       maxRedirections: 3,
-      headersTimeout: 10_000,
-      bodyTimeout: 15_000,
+      headersTimeout: KICKLET_REQUEST_TIMEOUT_MS,
+      bodyTimeout: KICKLET_REQUEST_TIMEOUT_MS,
     });
     const text = await response.body.text();
-    const ok = response.statusCode >= 200 && response.statusCode < 300;
+    const contentType = String(response.headers["content-type"] || "").toLowerCase();
+    const parsed = parseResponse(text, contentType);
+    const unavailable =
+      parsed.html ||
+      (parsed.nonJson && response.statusCode >= 200 && response.statusCode < 300);
+    const ok =
+      response.statusCode >= 200 &&
+      response.statusCode < 300 &&
+      !parsed.nonJson;
 
     if (!ok) {
-      logKickletFailure("proxy", url, response.statusCode, text);
+      logKickletFailure(
+        target.label,
+        options.method,
+        url,
+        response.statusCode,
+        text,
+      );
     }
 
     return {
       ok,
       status: response.statusCode,
-      data: await parseJson(text),
+      data: parsed.data,
+      unavailable,
     };
   } catch (error) {
-    console.error("[Kicklet] proxy request error", {
-      endpoint: new URL(url).pathname,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const message = error instanceof Error ? error.message : String(error);
+    logKickletFailure(target.label, options.method, url, 0, message);
 
     return {
       ok: false,
-      status: 502,
-      data: null,
+      status: 0,
+      data: {
+        message: KICKLET_UNAVAILABLE_ERROR,
+        requestFailed: true,
+      },
+      unavailable: true,
     };
   }
 }
 
-export async function fetchKickletJson(url: string) {
-  if (preferProxy) {
-    const proxied = await requestThroughProxy(url);
+export async function requestKickletJson(
+  url: string,
+  options: {
+    method?: KickletMethod;
+    apiToken?: string;
+    body?: unknown;
+  } = {},
+) {
+  const method = options.method || "GET";
+  const targets = requestTargets(method);
+  let lastResult: KickletRequestResult = {
+    ok: false,
+    status: 503,
+    data: { message: KICKLET_UNAVAILABLE_ERROR },
+    unavailable: true,
+  };
 
-    if (proxied) {
-      return proxied;
-    }
-  }
-
-  try {
-    const response = await fetch(url, {
-      headers: kickletHeaders,
-      cache: "no-store",
+  for (const target of targets) {
+    const result = await executeKickletRequest(url, target, {
+      ...options,
+      method,
     });
-    const text = await response.text();
-    const result = {
-      ok: response.ok,
-      status: response.status,
-      data: await parseJson(text),
-    };
+    lastResult = result;
 
-    if (!response.ok) {
-      logKickletFailure("direct", url, response.status, text);
-    }
-
-    if (response.status !== 403 && response.status !== 429) {
+    if (result.ok) {
+      preferredTargetLabel = target.label;
       return result;
     }
 
-    preferProxy = true;
-  } catch (error) {
-    console.error("[Kicklet] direct request error", {
-      endpoint: new URL(url).pathname,
-      error: error instanceof Error ? error.message : String(error),
-    });
-
-    // The production IP may be blocked; retry through the configured proxy.
-    preferProxy = true;
+    if (method !== "GET" || !shouldRetryGet(result)) {
+      return result;
+    }
   }
 
-  const proxied = await requestThroughProxy(url);
+  return lastResult;
+}
 
-  if (proxied) {
-    return proxied;
-  }
-
-  return {
-    ok: false,
-    status: 503,
-    data: null,
-  };
+export function fetchKickletJson(url: string) {
+  return requestKickletJson(url);
 }
