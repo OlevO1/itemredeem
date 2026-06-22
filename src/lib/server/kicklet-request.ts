@@ -194,7 +194,6 @@ async function executeKickletRequest(
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
       dispatcher: dispatcherFor(target.proxyUrl),
-      maxRedirections: 3,
       headersTimeout: KICKLET_REQUEST_TIMEOUT_MS,
       bodyTimeout: KICKLET_REQUEST_TIMEOUT_MS,
     });
